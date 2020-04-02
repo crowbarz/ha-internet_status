@@ -5,6 +5,10 @@ Sensor to check Internet ISP link path status via DNS queries.
 import logging
 from datetime import timedelta, datetime
 
+import dns.resolver
+import dns.ipv4
+import dns.reversename
+
 import requests
 import voluptuous as vol
 
@@ -13,8 +17,6 @@ import homeassistant.util.dt as dt_util
 from homeassistant.components.sensor import PLATFORM_SCHEMA
 from homeassistant.const import CONF_NAME, CONF_HOST, CONF_SCAN_INTERVAL
 from homeassistant.helpers.entity import Entity
-
-# REQUIREMENTS = ['dnspython==1.16.0']
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -106,8 +108,6 @@ class WanCheckSensor(Entity):
 
     def __init__(self, name, host, primary_probe, primary_probe_type, primary_configured_isp_ip, secondary_probe, secondary_probe_type, secondary_configured_isp_ip, vpn_probe, vpn_probe_type, vpn_hostname):
         """Initialise the ISP test sensor."""
-        import dns.resolver
-        import dns.ipv4
 
         self._name = name
         self._host = host
@@ -189,7 +189,6 @@ class WanCheckSensor(Entity):
 
     def dns_probe(self, server, probe_type):
         """Obtain self IP address using a probe."""
-        import dns.resolver
 
         resolver = dns.resolver.Resolver()
         resolver.nameservers = [server]
@@ -226,8 +225,8 @@ class WanCheckSensor(Entity):
         return current_ip
 
     def update(self):
-        import dns.resolver, dns.reversename
-        
+        """Update the sensor."""
+
         ## Get public IP address of primary, secondary and VPN links
         self._primary_current_isp_ip = self.dns_probe(self._primary_probe, self._primary_probe_type)
         self._secondary_current_isp_ip = self.dns_probe(self._secondary_probe, self._secondary_probe_type)
@@ -283,7 +282,7 @@ class WanCheckSensor(Entity):
             ## One of the links has failed and both paths are using the same link
             self._isp_status = 'failover'
             if self._primary_current_isp_ip == self._secondary_configured_isp_ip:
-                self._isp_status = 'failver (primary down)'
+                self._isp_status = 'failover (primary down)'
                 self._primary_isp_status = 'down'
             elif self._secondary_current_isp_ip == self._primary_configured_isp_ip:
                 self._isp_status = 'failover (secondary down)'
