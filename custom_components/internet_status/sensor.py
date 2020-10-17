@@ -1,156 +1,153 @@
-"""
-Sensor to check Internet ISP link path status via DNS queries.
-"""
+"""Sensor to check internet link status via DNS queries."""
 
 import logging
 from datetime import timedelta, datetime
-
+import time
 import dns.resolver
 import dns.ipv4
 import dns.reversename
-
-import requests
 import voluptuous as vol
 
 import homeassistant.helpers.config_validation as cv
-import homeassistant.util.dt as dt_util
 from homeassistant.components.sensor import PLATFORM_SCHEMA
-from homeassistant.const import CONF_NAME, CONF_HOST, CONF_SCAN_INTERVAL
+from homeassistant.const import CONF_NAME
 from homeassistant.helpers.entity import Entity
+from homeassistant.util import Throttle
 
 _LOGGER = logging.getLogger(__name__)
 
-# ASUSWRT_CONFIG_FILENAME = "asuswrt.conf"
-# HOST_SCRIPT = "/jffs/scripts/asuswrt-status.sh"
+CONF_PRIMARY_LINK = 'primary_link'
+CONF_SECONDARY_LINK = 'secondary_link'
+CONF_VPN = 'vpn'
+CONF_PROBE_SERVER = 'probe_host'
+CONF_PROBE_TYPE = 'probe_type'
+CONF_CONFIGURED_IP = 'configured_ip'
+CONF_TIMEOUT = 'timeout'
+CONF_RETRIES = 'retries'
+CONF_REVERSE_HOSTNAME = 'reverse_hostname'
 
-ATTR_ISP_IP_UPDATED = 'isp_ip_updated'
-ATTR_PRIMARY_ISP_STATUS = 'primary_isp_status'
-ATTR_PRIMARY_CONFIGURED_ISP_IP = 'primary_configured_isp_ip'
-ATTR_PRIMARY_CURRENT_ISP_IP = 'primary_current_isp_ip'
-ATTR_PRIMARY_ISP_IP_UPDATED = 'primary_isp_ip_updated'
-ATTR_SECONDARY_ISP_STATUS = 'secondary_isp_status'
-ATTR_SECONDARY_CONFIGURED_ISP_IP = 'secondary_configured_isp_ip'
-ATTR_SECONDARY_CURRENT_ISP_IP = 'secondary_current_isp_ip'
-ATTR_SECONDARY_ISP_IP_UPDATED = 'secondary_isp_ip_updated'
-ATTR_VPN_STATUS = 'vpn_status'
-ATTR_VPN_NAT_IP = 'vpn_nat_ip'
-
-CONF_PRIMARY_PROBE = 'primary_probe'
-CONF_PRIMARY_PROBE_TYPE = 'primary_probe_type'
-CONF_PRIMARY_CONFIGURED_ISP_IP = 'primary_configured_isp_ip'
-CONF_SECONDARY_PROBE = 'secondary_probe'
-CONF_SECONDARY_PROBE_TYPE = 'secondary_probe_type'
-CONF_SECONDARY_CONFIGURED_ISP_IP = 'secondary_configured_isp_ip'
-CONF_VPN_PROBE = 'vpn_probe'
-CONF_VPN_PROBE_TYPE = 'vpn_probe_type'
-CONF_VPN_HOSTNAME = 'vpn_hostname'
+ATTR_CONFIGURED_IP = CONF_CONFIGURED_IP
+ATTR_CURRENT_IP = 'current_ip'
+ATTR_IP_LAST_UPDATED = 'ip_last_updated'
+ATTR_RTT = 'rtt'
 
 PROBE_GOOGLE = 'google'
 PROBE_OPENDNS = 'opendns'
 PROBE_AKAMAI = 'akamai'
 
-DEFAULT_NAME = 'Internet Status'
-DEFAULT_PRIMARY_PROBE = 'ns1.google.com'
-DEFAULT_PRIMARY_PROBE_TYPE = PROBE_GOOGLE
-DEFAULT_SECONDARY_PROBE = 'ns2.google.com'
-DEFAULT_SECONDARY_PROBE_TYPE = PROBE_GOOGLE
-DEFAULT_VPN_PROBE = 'resolver1.opendns.com'
-DEFAULT_VPN_PROBE_TYPE = PROBE_OPENDNS
-DEFAULT_VPN_HOSTNAME = ''
+DEF_TIMEOUT = 1.0
+DEF_RETRIES = 3
+DEF_UPDATE_THROTTLE = timedelta(seconds=10)
+
+DEF_NAME = "Internet Status"
+DEF_NAME_PRIMARY_LINK = "Primary Link Status"
+DEF_PRIMARY_PROBE = 'ns1.google.com'
+DEF_PRIMARY_PROBE_TYPE = PROBE_GOOGLE
+DEF_NAME_SECONDARY_LINK = "Secondary Link Status"
+DEF_SECONDARY_PROBE = 'ns2.google.com'
+DEF_SECONDARY_PROBE_TYPE = PROBE_GOOGLE
+DEF_NAME_VPN = "VPN Status"
+DEF_VPN_PROBE = 'resolver1.opendns.com'
+DEF_VPN_PROBE_TYPE = PROBE_OPENDNS
 
 ICON = 'mdi:wan'
 SCAN_INTERVAL = timedelta(minutes=1)
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
-    vol.Optional(CONF_NAME, default=DEFAULT_NAME): cv.string,
-    vol.Required(CONF_HOST): cv.string,
-    vol.Optional(CONF_PRIMARY_PROBE, default=DEFAULT_PRIMARY_PROBE): cv.string,
-    vol.Optional(CONF_PRIMARY_PROBE_TYPE, default=DEFAULT_PRIMARY_PROBE_TYPE): cv.string,
-    vol.Optional(CONF_PRIMARY_CONFIGURED_ISP_IP, default=""): cv.string,
-    vol.Optional(CONF_SECONDARY_PROBE, default=DEFAULT_SECONDARY_PROBE): cv.string,
-    vol.Optional(CONF_SECONDARY_PROBE_TYPE, default=DEFAULT_SECONDARY_PROBE_TYPE): cv.string,
-    vol.Optional(CONF_SECONDARY_CONFIGURED_ISP_IP, default=""): cv.string,
-    vol.Optional(CONF_VPN_PROBE, default=DEFAULT_VPN_PROBE): cv.string,
-    vol.Optional(CONF_VPN_PROBE_TYPE, default=DEFAULT_VPN_PROBE_TYPE): cv.string,
-    vol.Optional(CONF_VPN_HOSTNAME, default=DEFAULT_VPN_HOSTNAME): cv.string
+    vol.Optional(CONF_NAME, default=DEF_NAME): cv.string,
+    vol.Optional(CONF_TIMEOUT, default=DEF_TIMEOUT): cv.socket_timeout,
+    vol.Optional(CONF_RETRIES, default=DEF_RETRIES): cv.positive_int,
+    vol.Required(CONF_PRIMARY_LINK): vol.Schema({
+        vol.Optional(CONF_NAME, default=DEF_NAME_PRIMARY_LINK): cv.string,
+        vol.Optional(CONF_PROBE_SERVER, default=DEF_PRIMARY_PROBE): cv.string,
+        vol.Optional(CONF_PROBE_TYPE, default=DEF_PRIMARY_PROBE_TYPE): cv.string,
+        vol.Optional(CONF_CONFIGURED_IP): cv.string,
+        vol.Optional(CONF_TIMEOUT): cv.socket_timeout,
+        vol.Optional(CONF_RETRIES): cv.positive_int,
+    }),
+    vol.Optional(CONF_SECONDARY_LINK): vol.Schema({
+        vol.Optional(CONF_NAME, default=DEF_NAME_SECONDARY_LINK): cv.string,
+        vol.Optional(CONF_PROBE_SERVER, default=DEF_SECONDARY_PROBE): cv.string,
+        vol.Optional(CONF_PROBE_TYPE, default=DEF_SECONDARY_PROBE_TYPE): cv.string,
+        vol.Optional(CONF_CONFIGURED_IP): cv.string,
+        vol.Optional(CONF_TIMEOUT): cv.socket_timeout,
+        vol.Optional(CONF_RETRIES): cv.positive_int,
+    }),
+    vol.Optional(CONF_VPN): vol.Schema({
+        vol.Optional(CONF_NAME, default=DEF_NAME_VPN): cv.string,
+        vol.Optional(CONF_PROBE_SERVER, default=DEF_VPN_PROBE): cv.string,
+        vol.Optional(CONF_PROBE_TYPE, default=DEF_VPN_PROBE_TYPE): cv.string,
+        vol.Optional(CONF_CONFIGURED_IP): cv.string,
+        vol.Optional(CONF_REVERSE_HOSTNAME): cv.string,
+        vol.Optional(CONF_TIMEOUT): cv.socket_timeout,
+        vol.Optional(CONF_RETRIES): cv.positive_int,
+    )},
 })
 
 def setup_platform(hass, config, add_entities, discovery_info=None):
-    """Set up the ISP test sensor."""
+    """Set up the internet link status sensor."""
 
     name = config.get(CONF_NAME)
-    host = config.get(CONF_HOST)
-    primary_probe = config.get(CONF_PRIMARY_PROBE)
-    primary_probe_type = config.get(CONF_PRIMARY_PROBE_TYPE)
-    primary_configured_isp_ip = config.get(CONF_PRIMARY_CONFIGURED_ISP_IP)
-    if primary_configured_isp_ip == "":
-        primary_configured_isp_ip = None
-    secondary_probe = config.get(CONF_SECONDARY_PROBE)
-    secondary_probe_type = config.get(CONF_SECONDARY_PROBE_TYPE)
-    secondary_configured_isp_ip = config.get(CONF_SECONDARY_CONFIGURED_ISP_IP)
-    if secondary_configured_isp_ip == "":
-        secondary_configured_isp_ip = None
-    vpn_probe = config.get(CONF_VPN_PROBE)
-    vpn_probe_type = config.get(CONF_VPN_PROBE_TYPE)
-    vpn_hostname = config.get(CONF_VPN_HOSTNAME)
+    timeout = config.get(CONF_TIMEOUT)
+    retries = config.get(CONF_RETRIES)
+    config_primary = config.get(CONF_PRIMARY_LINK)
+    config_secondary = config.get(CONF_SECONDARY_LINK)
+    config_vpn = config.get(CONF_VPN)
+    primary_entity = None
+    secondary_entity = None
+    vpn_entity = None
+    entities = []
 
     try:
-        sensor = WanCheckSensor(name, host, primary_probe, primary_probe_type, \
-                     primary_configured_isp_ip, secondary_probe, \
-                     secondary_probe_type, secondary_configured_isp_ip, \
-                     vpn_probe, vpn_probe_type, vpn_hostname)
-        add_entities([sensor], True)
+        primary_entity = LinkStatusSensor(timeout, retries, config_primary)
+        entities.append(primary_entity)
+        if config_secondary:
+            secondary_entity = LinkStatusSensor(timeout, retries, config_secondary)
+            entities.append(secondary_entity)
+        if config_vpn:
+            vpn_entity = LinkStatusSensor(timeout, retries, config_vpn)
+            entities.append(vpn_entity)
+        internet_status_entity = InternetStatusSensor(name, timeout, retries, \
+            primary_entity, secondary_entity, vpn_entity)
+        entities.append(internet_status_entity)
+        add_entities(entities, True)
     except Exception as e:
-        _LOGGER.error("Error creating sensor: " + str(e))
+        _LOGGER.error("Error creating sensors: %s", str(e))
 
-class WanCheckSensor(Entity):
-    """Implementation of a ISP test sensor."""
+class LinkStatusSensor(Entity):
+    """Sensor to check the status of an internet link."""
 
-    def __init__(self, name, host, primary_probe, primary_probe_type, primary_configured_isp_ip, secondary_probe, secondary_probe_type, secondary_configured_isp_ip, vpn_probe, vpn_probe_type, vpn_hostname):
-        """Initialise the ISP test sensor."""
+    def __init__(self, timeout, retries, probe_config):
+        """Initialise the link check sensor."""
+        self._name = probe_config.get(CONF_NAME)
+        self._probe_server = probe_config.get(CONF_PROBE_SERVER)
+        self._probe_type = probe_config.get(CONF_PROBE_TYPE)
+        self._reverse_hostname = probe_config.get(CONF_REVERSE_HOSTNAME)
+        self._timeout = timeout
+        self._retries = retries
+        self._rtt = None
 
-        self._name = name
-        self._host = host
+        self.parent_sensor = None
+        self.configured_ip = probe_config.get(CONF_CONFIGURED_IP)
+        self.current_ip = None
+        self.link_up = None
+        self.ip_last_updated = None
+
+        probe_host = probe_config.get(CONF_PROBE_SERVER)
+        probe = None
         try:
-            probe_host = primary_probe
-            try:
-                dns.ipv4.inet_aton(probe_host)
-            except:
-                self._primary_probe = str(dns.resolver.query(probe_host)[0])
-            else:
-                self._primary_probe = probe_host
-            self._primary_probe_type = primary_probe_type
-            self._primary_configured_isp_ip = primary_configured_isp_ip
-            probe_host = secondary_probe
-            try:
-                dns.ipv4.inet_aton(probe_host)
-            except:
-                self._secondary_probe = str(dns.resolver.query(probe_host)[0])
-            else:
-                self._secondary_probe = probe_host
-            self._secondary_probe_type = secondary_probe_type
-            self._secondary_configured_isp_ip = secondary_configured_isp_ip
-            probe_host = vpn_probe
-            try:
-                dns.ipv4.inet_aton(probe_host)
-            except:
-                self._vpn_probe = str(dns.resolver.query(probe_host)[0])
-            else:
-                self._vpn_probe = probe_host
-            self._vpn_probe_type = vpn_probe_type
-            self._vpn_hostname = vpn_hostname
-        except Exception as e:
-            raise Exception('Could not resolve ' + probe_host + ': ' + str(e))
+            ## Attempt to parse as IP address
+            dns.ipv4.inet_aton(probe_host)
+            probe = probe_host
+        except dns.exception:
+            pass
 
-        self._isp_status = 'unknown'
-        self._primary_isp_status = 'unknown'
-        self._primary_current_isp_ip = None
-        self._primary_isp_ip_updated = False
-        self._secondary_isp_status = 'unknown'
-        self._secondary_current_isp_ip = None
-        self._secondary_isp_ip_updated = False
-        self._vpn_status = 'down'
-        self._vpn_nat_ip = None
+        if probe is None:
+            ## Attempt to resolve as DNS name
+            try:
+                probe = str(dns.resolver.query(probe_host)[0])
+            except dns.exception as e:
+                raise Exception('Could not resolve %s: %s' % probe_host, str(e))
 
     @property
     def name(self):
@@ -165,35 +162,25 @@ class WanCheckSensor(Entity):
     @property
     def state(self):
         """Return the state of the sensor."""
-        return self._isp_status
+        return self.link_up
 
     @property
     def device_state_attributes(self):
         """Return the state attributes."""
+        ip_last_updated = self.ip_last_updated
         attrs = {
-            ATTR_PRIMARY_ISP_STATUS: self._primary_isp_status,
-            ATTR_PRIMARY_CONFIGURED_ISP_IP: self._primary_configured_isp_ip,
-            ATTR_PRIMARY_ISP_IP_UPDATED: self._primary_isp_ip_updated,
-            ATTR_SECONDARY_ISP_STATUS: self._secondary_isp_status,
-            ATTR_SECONDARY_CURRENT_ISP_IP: self._secondary_current_isp_ip,
-            ATTR_SECONDARY_ISP_IP_UPDATED: self._secondary_isp_ip_updated,
-            ATTR_VPN_STATUS: self._vpn_status
+            ATTR_CONFIGURED_IP: self.configured_ip,
+            ATTR_CURRENT_IP: self.current_ip,
+            ATTR_RTT: self._rtt,
         }
-        if self._primary_isp_status == 'up':
-            attrs[ATTR_PRIMARY_CURRENT_ISP_IP] = self._primary_current_isp_ip
-        if self._secondary_isp_status == 'up':
-            attrs[ATTR_SECONDARY_CONFIGURED_ISP_IP] = self._secondary_configured_isp_ip
-        if self._vpn_status == 'up':
-            attrs[ATTR_VPN_NAT_IP] = self._vpn_nat_ip
+        if ip_last_updated is not None:
+            attrs[ATTR_IP_LAST_UPDATED] = datetime.fromtimestamp(ip_last_updated).replace(microsecond=0)
         return attrs
 
-    def dns_probe(self, server, probe_type):
-        """Obtain self IP address using a probe."""
-
-        resolver = dns.resolver.Resolver()
-        resolver.nameservers = [server]
-        resolver.timeout = 1.0
-        resolver.lifetime = 3.0
+    def dns_probe(self, resolver):
+        """Obtain public IP address using a probe."""
+        probe_server = self._probe_server
+        probe_type = self._probe_type
         current_ip = None
 
         try:
@@ -215,88 +202,172 @@ class WanCheckSensor(Entity):
                 for rdata in resolver.query('whoami.akamai.net', 'A'):
                     current_ip = rdata.address
             else:
-                _LOGGER.warning("unimplemented probe type %s for server %s", probe_type, server)
-                pass
-        except Exception as e:
-            _LOGGER.warning("probe type %s for server %s failed: %s", probe_type, server, str(e))
-            pass
+                _LOGGER.error("unimplemented probe type %s for server %s", probe_type, probe_server)
+        except dns.exception as e:
+            _LOGGER.warning("probe type %s for server %s failed: %s", probe_type, probe_server, str(e))
+            return None
 
-        _LOGGER.debug("probe %s for server %s returned IP %s", probe_type, server, current_ip)
+        _LOGGER.debug("probe %s for server %s returned IP %s", probe_type, probe_server, current_ip)
         return current_ip
+
+    def dns_reverse_lookup_check(self):
+        """Reverse DNS lookup current IP and match with reverse hostname."""
+        current_ip = self.current_ip
+        rquery = []
+        ptr = ''
+        try:
+            rquery = dns.resolver.query(dns.reversename.from_address(current_ip), "PTR")
+            ptr = str(rquery[0])
+            if self._reverse_hostname in ptr:
+                return True
+            else:
+                return False
+        except dns.exception as e:
+            _LOGGER.warning("Reverse lookup for %s failed: %s", current_ip, str(e))
+            return None
+
+    @Throttle(DEF_UPDATE_THROTTLE)
+    def update(self):
+        """Update the sensor."""
+        probe_server = self._probe_server
+        retries = self._retries
+        reverse_hostname = self._reverse_hostname
+
+        resolver = dns.resolver.Resolver()
+        resolver.nameservers = [ probe_server ]
+        resolver.timeout = self._timeout
+        resolver.lifetime = self._timeout
+
+        rtt = None
+        current_ip = None
+
+        for _ in range(retries):
+            start_time = time.time()
+            current_ip = self.dns_probe(resolver)
+            if current_ip is not None:
+                rtt = round((time.time()-start_time)*1000, 3)
+                break
+        if self.current_ip != current_ip:
+            self.ip_last_updated = time.time()
+            self.current_ip = current_ip
+        self._rtt = rtt
+        if current_ip is None:
+            _LOGGER.warning("unable to reach server %s after %d retries", probe_server, retries)
+            self.link_up = False
+            return False
+
+        if self.current_ip and reverse_hostname:
+            self.link_up = self.dns_reverse_lookup_check()
+        else:
+            self.link_up = True
+
+        ## self.link_up and self.configured_ip are set/updated by
+        ## parent sensor for non-VPN links
+        if self.parent_sensor:
+            self.parent_sensor.update()
+
+class InternetStatusSensor(Entity):
+    """Sensor that determines the status of access to the internet."""
+
+    def __init__(self, name, timeout, retries, primary_entity, secondary_entity, vpn_entity):
+        """Initialise the internet status sensor."""
+        self._name = name
+        self._timeout = timeout
+        self._retries = retries
+        self._primary_entity = primary_entity
+        self._secondary_entity = secondary_entity
+        self._vpn_entity = vpn_entity
+        self._link_status = None
+
+        if primary_entity:
+            primary_entity.parent_sensor = self
+        if secondary_entity:
+            secondary_entity.parent_sensor = self
+        if vpn_entity:
+            vpn_entity.parent_sensor = self
+
+    @property
+    def name(self):
+        """Return the name of the sensor."""
+        return self._name
+
+    @property
+    def icon(self):
+        """Icon to use in the frontend, if any."""
+        return ICON
+
+    @property
+    def state(self):
+        """Return the state of the sensor."""
+        return self._link_status
+
+    @property
+    def device_state_attributes(self):
+        """Return the state attributes."""
+        attrs = {
+        }
+        return attrs
+
+    @property
+    def should_poll(self):
+        """Polling not required as link sensors will trigger update."""
+        return False
 
     def update(self):
         """Update the sensor."""
 
-        ## Get public IP address of primary, secondary and VPN links
-        self._primary_current_isp_ip = self.dns_probe(self._primary_probe, self._primary_probe_type)
-        self._secondary_current_isp_ip = self.dns_probe(self._secondary_probe, self._secondary_probe_type)
-        self._vpn_nat_ip = self.dns_probe(self._vpn_probe, self._vpn_probe_type)
-
-        ## Compare reverse DNS map of VPN NAT IP to determine VPN status
-        self._vpn_status = 'unknown'
-        if self._vpn_hostname:
-            if self._vpn_nat_ip and self._vpn_nat_ip != 'unknown':
-                rquery = []
-                ptr = ''
-                try:
-                    rquery = dns.resolver.query(dns.reversename.from_address(self._vpn_nat_ip), "PTR")
-                    ptr = str(rquery[0])
-                    if self._vpn_hostname in ptr:
-                        self._vpn_status = 'up'
-                    else:
-                        self._vpn_status = 'down'
-                except Exception as e:
-                    _LOGGER.warning("Reverse lookup for %s failed: %s", self._vpn_nat_ip, str(e))
-                    pass
-
         ## Determine link status
-        self._isp_status = 'up'
-        self._primary_isp_status = 'up'
-        self._secondary_isp_status = 'up'
-        self._primary_isp_ip_updated = False
-        self._secondary_isp_ip_updated = False
+        self._link_status = 'up'
+        primary_entity = self._primary_entity
+        secondary_entity = self._secondary_entity
 
-        ## Check whether ISP link IP addresses could be retrieved
-        # if self._primary_current_isp_ip == 'unknown':
-        #     self._isp_status = 'error'
-        #     self._primary_isp_status = 'unknown'
-        # if self._secondary_current_isp_ip == 'unknown':
-        #     self._isp_status = 'error'
-        #     self._secondary_isp_status = 'unknown'
+        primary_link_up = primary_entity.link_up
+        primary_configured_ip = primary_entity.configured_ip
+        primary_current_ip = primary_entity.current_ip
+        secondary_link_up = secondary_entity.link_up
+        secondary_configured_ip = secondary_entity.configured_ip
+        secondary_current_ip = secondary_entity.current_ip
+
+        _LOGGER.debug("internet_status update: link_status: %s/%s/%s %s/%s/%s",
+            primary_link_up, primary_configured_ip, primary_current_ip,
+            secondary_link_up, secondary_configured_ip, secondary_current_ip)
+
+        if primary_link_up is None or secondary_link_up is None:
+            self._link_status = "error"
+            self.schedule_update_ha_state()
+            return False
 
         ## Check link failover status
-        if self._primary_current_isp_ip == None:
+        if not primary_link_up:
             ## Primary link failed but has not failed over to secondary yet
-            self._isp_status = 'degraded (primary down)'
-            self._primary_isp_status = 'down'
-            if self._secondary_current_isp_ip == None:
+            self._link_status = 'degraded (primary down)'
+            if not secondary_link_up:
                 ## Both primary and secondary links have failed
-                self._isp_status = 'down'
-                self._secondary_isp_status = 'down'
-        elif self._secondary_current_isp_ip == None:
+                self._link_status = 'down'
+        elif not secondary_link_up:
             ## Secondary link failed but has not failed over to primary yet
             ## Primary link is up from previous check
-            self._isp_status = 'degraded (secondary down)'
-            self._secondary_isp_status = 'down'
-        elif self._primary_current_isp_ip == self._secondary_current_isp_ip:
+            self._link_status = 'degraded (secondary down)'
+        elif primary_current_ip == secondary_current_ip:
             ## One of the links has failed and both paths are using the same link
-            self._isp_status = 'failover'
-            if self._primary_current_isp_ip == self._secondary_configured_isp_ip:
-                self._isp_status = 'failover (primary down)'
-                self._primary_isp_status = 'down'
-            elif self._secondary_current_isp_ip == self._primary_configured_isp_ip:
-                self._isp_status = 'failover (secondary down)'
-                self._secondary_isp_status = 'down'
+            self._link_status = 'failover'
+            if primary_current_ip == secondary_configured_ip:
+                self._link_status = 'failover (primary down)'
+                primary_entity.link_up = False
+            elif secondary_current_ip == primary_configured_ip:
+                self._link_status = 'failover (secondary down)'
+                secondary_entity.link_up = False
         else:
-            if self._primary_current_isp_ip != None and self._primary_current_isp_ip != 'unknown':
-                if self._primary_configured_isp_ip == None:
-                    self._primary_configured_isp_ip = self._primary_current_isp_ip
-                elif self._primary_current_isp_ip != self._primary_configured_isp_ip:
-                    self._primary_configured_isp_ip = self._primary_current_isp_ip
-                    self._primary_isp_ip_updated = True
-            if self._secondary_current_isp_ip != None and self._secondary_current_isp_ip != 'unknown':
-                if self._secondary_configured_isp_ip == None:
-                    self._secondary_configured_isp_ip = self._secondary_current_isp_ip
-                elif self._secondary_current_isp_ip != self._secondary_configured_isp_ip:
-                    self._secondary_configured_isp_ip = self._secondary_current_isp_ip
-                    self._secondary_isp_ip_updated = True
+            if primary_current_ip:
+                if primary_configured_ip is None:
+                    primary_entity.configured_ip = primary_current_ip
+                elif primary_current_ip != primary_configured_ip:
+                    primary_entity.configured_ip = primary_current_ip
+                    primary_entity.ip_last_updated = time.time()
+            if secondary_current_ip:
+                if secondary_configured_ip is None:
+                    secondary_entity.configured_ip = secondary_current_ip
+                elif secondary_current_ip != secondary_configured_ip:
+                    secondary_entity.configured_ip = secondary_current_ip
+                    secondary_entity.ip_last_updated = time.time()
+        self.schedule_update_ha_state()
