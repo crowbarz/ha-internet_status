@@ -81,7 +81,7 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
         vol.Optional(CONF_REVERSE_HOSTNAME): cv.string,
         vol.Optional(CONF_TIMEOUT): cv.socket_timeout,
         vol.Optional(CONF_RETRIES): cv.positive_int,
-    )},
+    }),
 })
 
 def setup_platform(hass, config, add_entities, discovery_info=None):
