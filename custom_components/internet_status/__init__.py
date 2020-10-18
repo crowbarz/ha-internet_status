@@ -13,32 +13,41 @@ from homeassistant.helpers import discovery
 
 from .const import (
     DOMAIN,
-    CONF_PRIMARY_LINK,
-    CONF_SECONDARY_LINK,
-    CONF_VPN_LINK,
+    CONF_LINKS,
+    CONF_LINK_TYPE,
     CONF_PROBE_SERVER,
     CONF_PROBE_TYPE,
     CONF_CONFIGURED_IP,
     CONF_TIMEOUT,
     CONF_RETRIES,
     CONF_REVERSE_HOSTNAME,
+    CONF_RTT_SENSOR,
     DEF_SCAN_INTERVAL,
     DEF_TIMEOUT,
     DEF_RETRIES,
+    DEF_LINK_TYPE,
     DEF_NAME,
-    DEF_NAME_PRIMARY_LINK,
-    DEF_PRIMARY_PROBE,
-    DEF_PRIMARY_PROBE_TYPE,
-    DEF_NAME_SECONDARY_LINK,
-    DEF_SECONDARY_PROBE,
-    DEF_SECONDARY_PROBE_TYPE,
-    DEF_NAME_VPN,
-    DEF_VPN_PROBE,
-    DEF_VPN_PROBE_TYPE,
     DATA_DOMAIN_CONFIG,
     )
 
 _LOGGER = logging.getLogger(__name__)
+
+RTT_SCHEMA = vol.Schema({
+    vol.Optional(CONF_NAME): cv.string,
+})
+
+LINK_SCHEMA = vol.Schema({
+    vol.Optional(CONF_NAME): cv.string,
+    vol.Optional(CONF_LINK_TYPE, default=DEF_LINK_TYPE): cv.string,
+    vol.Optional(CONF_PROBE_SERVER): cv.string,
+    vol.Optional(CONF_PROBE_TYPE): cv.string,
+    vol.Optional(CONF_SCAN_INTERVAL): cv.positive_time_period,
+    vol.Optional(CONF_TIMEOUT): cv.socket_timeout,
+    vol.Optional(CONF_RETRIES): cv.positive_int,
+    vol.Optional(CONF_CONFIGURED_IP): cv.string,
+    vol.Optional(CONF_REVERSE_HOSTNAME): cv.string,
+    vol.Optional(CONF_RTT_SENSOR): RTT_SCHEMA,
+})
 
 CONFIG_SCHEMA = vol.Schema({
     DOMAIN: vol.Schema({
@@ -46,34 +55,7 @@ CONFIG_SCHEMA = vol.Schema({
         vol.Optional(CONF_SCAN_INTERVAL, default=DEF_SCAN_INTERVAL): cv.positive_time_period,
         vol.Optional(CONF_TIMEOUT, default=DEF_TIMEOUT): cv.socket_timeout,
         vol.Optional(CONF_RETRIES, default=DEF_RETRIES): cv.positive_int,
-        vol.Required(CONF_PRIMARY_LINK): vol.Schema({
-            vol.Optional(CONF_NAME, default=DEF_NAME_PRIMARY_LINK): cv.string,
-            vol.Optional(CONF_PROBE_SERVER, default=DEF_PRIMARY_PROBE): cv.string,
-            vol.Optional(CONF_PROBE_TYPE, default=DEF_PRIMARY_PROBE_TYPE): cv.string,
-            vol.Optional(CONF_SCAN_INTERVAL): cv.positive_time_period,
-            vol.Optional(CONF_TIMEOUT): cv.socket_timeout,
-            vol.Optional(CONF_RETRIES): cv.positive_int,
-            vol.Optional(CONF_CONFIGURED_IP): cv.string,
-        }),
-        vol.Optional(CONF_SECONDARY_LINK): vol.Schema({
-            vol.Optional(CONF_NAME, default=DEF_NAME_SECONDARY_LINK): cv.string,
-            vol.Optional(CONF_PROBE_SERVER, default=DEF_SECONDARY_PROBE): cv.string,
-            vol.Optional(CONF_PROBE_TYPE, default=DEF_SECONDARY_PROBE_TYPE): cv.string,
-            vol.Optional(CONF_SCAN_INTERVAL): cv.positive_time_period,
-            vol.Optional(CONF_TIMEOUT): cv.socket_timeout,
-            vol.Optional(CONF_RETRIES): cv.positive_int,
-            vol.Optional(CONF_CONFIGURED_IP): cv.string,
-        }),
-        vol.Optional(CONF_VPN_LINK): vol.Schema({
-            vol.Optional(CONF_NAME, default=DEF_NAME_VPN): cv.string,
-            vol.Optional(CONF_PROBE_SERVER, default=DEF_VPN_PROBE): cv.string,
-            vol.Optional(CONF_PROBE_TYPE, default=DEF_VPN_PROBE_TYPE): cv.string,
-            vol.Optional(CONF_SCAN_INTERVAL): cv.positive_time_period,
-            vol.Optional(CONF_TIMEOUT): cv.socket_timeout,
-            vol.Optional(CONF_RETRIES): cv.positive_int,
-            vol.Optional(CONF_CONFIGURED_IP): cv.string,
-            vol.Optional(CONF_REVERSE_HOSTNAME): cv.string,
-        }),
+        vol.Required(CONF_LINKS): vol.All(cv.ensure_list, [ LINK_SCHEMA ]),
     }),
 }, extra=vol.ALLOW_EXTRA)
 

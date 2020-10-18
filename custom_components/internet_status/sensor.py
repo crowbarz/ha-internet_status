@@ -1,22 +1,29 @@
 """Sensor to represent overall internet status."""
 
 import logging
-import time
 
 from homeassistant.const import CONF_NAME
 from homeassistant.helpers.entity import Entity
 
 from .const import (
     DOMAIN,
+    CONF_LINKS,
+    CONF_RTT_SENSOR,
+    DEF_LINK_NAME,
+    DEF_LINK_RTT_SUFFIX,
     DATA_DOMAIN_CONFIG,
-    DATA_PARENT_ENTITY,
-    DATA_PRIMARY_ENTITY,
-    DATA_SECONDARY_ENTITY,
+    DATA_SENSOR_ENTITY,
+    DATA_PRIMARY_LINK_ENTITY,
+    DATA_SECONDARY_LINK_ENTITIES,
+    DATA_LINK_RTT_ENTITIES,
+    ATTR_RTT,
+    ATTR_RTT_ARRAY,
 )
 
 _LOGGER = logging.getLogger(__name__)
 
-ICON = 'mdi:wan'
+INTERNET_STATUS_ICON = 'mdi:wan'
+LINK_RTT_ICON = 'mdi:lan-connect'
 
 def setup_platform(hass, config, add_entities, discovery_info=None):
     """Set up the internet status sensor."""
@@ -25,21 +32,45 @@ def setup_platform(hass, config, add_entities, discovery_info=None):
         return
 
     domain_config = hass.data[DOMAIN][DATA_DOMAIN_CONFIG]
+    entities = []
 
+    ## Create internet status sensor
     _LOGGER.debug("setting up internet link status sensors")
     name = domain_config.get(CONF_NAME)
+    internet_status_entity = InternetStatusSensor(hass, name)
+    hass.data[DOMAIN][DATA_SENSOR_ENTITY] = internet_status_entity
+    entities.append(internet_status_entity)
 
-    internet_status_entity = InternetStatusSensor(name, hass)
-    hass.data[DOMAIN][DATA_PARENT_ENTITY] = internet_status_entity
-    add_entities([internet_status_entity])
+    ## Create configured rtt sensors
+    _LOGGER.debug("setting up link rtt sensors")
+    link_rtt_entities = [ ]
+    link_count = 0
+    for link_config in domain_config[CONF_LINKS]:
+        link_count += 1
+        link_rtt_config = link_config.get(CONF_RTT_SENSOR)
+        entity = None
+        if link_rtt_config is not None:
+            if CONF_NAME in link_config:
+                name = link_config[CONF_NAME] + DEF_LINK_RTT_SUFFIX
+            else:
+                name = (DEF_LINK_NAME % link_count) + DEF_LINK_RTT_SUFFIX
+            name = link_rtt_config.get(CONF_NAME, name)
+            entity = LinkRttSensor(hass, name, link_count, link_rtt_config)
+        link_rtt_entities.append(entity)
+        if entity:
+            entities.append(entity)
+    hass.data[DOMAIN][DATA_LINK_RTT_ENTITIES] = link_rtt_entities
+
+    ## Add sensors to platform
+    add_entities(entities)
 
 class InternetStatusSensor(Entity):
     """Sensor that determines the status of internet access."""
 
-    def __init__(self, name, hass):
+    def __init__(self, hass, name):
         """Initialise the internet status sensor."""
-        self._name = name
         self._data = hass.data[DOMAIN]
+        self._name = name
         self._link_status = None
         _LOGGER.debug("%s()", name)
 
@@ -51,7 +82,7 @@ class InternetStatusSensor(Entity):
     @property
     def icon(self):
         """Icon to use in the frontend, if any."""
-        return ICON
+        return INTERNET_STATUS_ICON
 
     @property
     def state(self):
@@ -73,22 +104,18 @@ class InternetStatusSensor(Entity):
     def update(self):
         """Update the sensor."""
 
-        ## Determine link status
+        ## Get entities
         link_status = 'up'
-        primary_entity = self._data.get(DATA_PRIMARY_ENTITY)
-        secondary_entity = self._data.get(DATA_SECONDARY_ENTITY)
+        primary_entity = self._data.get(DATA_PRIMARY_LINK_ENTITY)
+        secondary_entity = None
+        secondary_entities = self._data.get(DATA_SECONDARY_LINK_ENTITIES)
+        ## TODO: update to handle any number of secondary entities
+        if secondary_entities and len(secondary_entities) > 0:
+            secondary_entity = secondary_entities[0]
 
         ## Wait for both link sensors to be initialised
-        ## TODO: handle case where no secondary is specified
         if primary_entity is None or secondary_entity is None:
             return
-
-        ## Register self as parent of link sensors
-        if primary_entity and primary_entity.parent_entity is None:
-            primary_entity.parent_entity = self
-        if secondary_entity and secondary_entity.parent_entity is None:
-            secondary_entity.parent_entity = self
-        ## No need to update parent on VPN entity update
 
         primary_link_up = primary_entity.link_up
         primary_configured_ip = primary_entity.configured_ip
@@ -117,31 +144,79 @@ class InternetStatusSensor(Entity):
             link_status = 'failover'
             if primary_current_ip == secondary_configured_ip:
                 link_status = 'failover (primary down)'
-                primary_entity.link_up = False
-                primary_entity.link_failover = True
+                primary_entity.set_failover()
             elif secondary_current_ip == primary_configured_ip:
                 link_status = 'failover (secondary down)'
-                secondary_entity.link_up = False
-                secondary_entity.link_failover = True
+                secondary_entity.set_failover()
         else:
             ## Normal, update configured IP if not specified
-            primary_entity.link_failover = False
-            secondary_entity.link_failover = False
+            primary_entity.clear_failover()
+            secondary_entity.clear_failover()
             if primary_current_ip:
-                if primary_configured_ip is None:
-                    primary_entity.configured_ip = primary_current_ip
-                elif primary_current_ip != primary_configured_ip:
-                    primary_entity.configured_ip = primary_current_ip
-                    primary_entity.ip_last_updated = time.time()
+                primary_entity.set_configured_ip()
             if secondary_current_ip:
-                if secondary_configured_ip is None:
-                    secondary_entity.configured_ip = secondary_current_ip
-                elif secondary_current_ip != secondary_configured_ip:
-                    secondary_entity.configured_ip = secondary_current_ip
-                    secondary_entity.ip_last_updated = time.time()
+                secondary_entity.set_configured_ip()
 
         ## Only trigger update
         if self._link_status != link_status:
             self._link_status = link_status
             _LOGGER.info("%s state=%s", self._name, link_status)
+            self.schedule_update_ha_state()
+
+
+class LinkRttSensor(Entity):
+    """Sensor that tracks rtt to probe server."""
+
+    def __init__(self, hass, name, link_count, link_rtt_config):
+        """Initialise the internet status sensor."""
+        self._data = hass.data[DOMAIN]
+        self._name = name
+        self._rtt = None
+        self._rtt_array = None
+        _LOGGER.debug("%s: link_count=%s, rtt_config=%s",
+            name, link_count, link_rtt_config)
+
+    @property
+    def name(self):
+        """Return the name of the sensor."""
+        return self._name
+
+    @property
+    def icon(self):
+        """Icon to use in the frontend, if any."""
+        return LINK_RTT_ICON
+
+    @property
+    def state(self):
+        """Return the state of the sensor."""
+        return self._rtt
+
+    @property
+    def unit_of_measurement(self):
+        """Return the state of the sensor."""
+        return "ms"
+
+    @property
+    def device_state_attributes(self):
+        """Return the state attributes."""
+        attrs = {
+            ATTR_RTT: self._rtt,
+            ATTR_RTT_ARRAY: self._rtt_array
+        }
+        return attrs
+
+    @property
+    def should_poll(self):
+        """Polling not required as link binary_sensors will update sensor."""
+        return False
+
+    def update(self):
+        """Update the sensor. Updated by the link binary_sensors"""
+        return
+
+    def set_rtt(self, rtt, rtt_array):
+        """Update rtt data."""
+        self._rtt = rtt
+        self._rtt_array = rtt_array
+        if self.entity_id:
             self.schedule_update_ha_state()
