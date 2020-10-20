@@ -34,19 +34,19 @@ def setup_platform(hass, config, add_entities, discovery_info=None):
     domain_config = hass.data[DOMAIN][DATA_DOMAIN_CONFIG]
     entities = []
 
-    ## Create internet status sensor
-    _LOGGER.debug("setting up internet link status sensors")
+    _LOGGER.info("setting up internet link status sensors")
     name = domain_config.get(CONF_NAME)
-    internet_status_entity = InternetStatusSensor(hass, name)
+    entity_id = "sensor." + DOMAIN
+    internet_status_entity = InternetStatusSensor(hass, entity_id, name)
     hass.data[DOMAIN][DATA_SENSOR_ENTITY] = internet_status_entity
     entities.append(internet_status_entity)
 
-    ## Create configured rtt sensors
-    _LOGGER.debug("setting up link rtt sensors")
+    _LOGGER.info("setting up link rtt sensors")
     link_rtt_entities = [ ]
     link_count = 0
-    for link_config in domain_config[CONF_LINKS]:
+    for entity_id, link_config in domain_config[CONF_LINKS].items():
         link_count += 1
+        entity_id = "sensor." + entity_id + "_rtt"
         link_rtt_config = link_config.get(CONF_RTT_SENSOR)
         entity = None
         if link_rtt_config is not None:
@@ -55,23 +55,26 @@ def setup_platform(hass, config, add_entities, discovery_info=None):
             else:
                 name = (DEF_LINK_NAME % link_count) + DEF_LINK_RTT_SUFFIX
             name = link_rtt_config.get(CONF_NAME, name)
-            entity = LinkRttSensor(hass, name, link_count, link_rtt_config)
+            entity = LinkRttSensor(hass, entity_id, name, link_count,
+                link_rtt_config)
         link_rtt_entities.append(entity)
-        if entity:
-            entities.append(entity)
     hass.data[DOMAIN][DATA_LINK_RTT_ENTITIES] = link_rtt_entities
 
     ## Add sensors to platform
-    add_entities(entities)
+    add_entities(entities, True)
 
 class InternetStatusSensor(Entity):
     """Sensor that determines the status of internet access."""
 
-    def __init__(self, hass, name):
+    def __init__(self, hass, entity_id, name):
         """Initialise the internet status sensor."""
         self._data = hass.data[DOMAIN]
+        self._unique_id = entity_id
         self._name = name
         self._link_status = None
+
+        self.entity_id = entity_id
+        self._updated = False
         _LOGGER.debug("%s()", name)
 
     @property
@@ -100,6 +103,11 @@ class InternetStatusSensor(Entity):
     def should_poll(self):
         """Polling not required as link sensors will trigger update."""
         return False
+
+    @property
+    def unique_id(self):
+        """Return a unique ID."""
+        return self._unique_id
 
     def update(self):
         """Update the sensor."""
@@ -157,24 +165,30 @@ class InternetStatusSensor(Entity):
             if secondary_current_ip:
                 secondary_entity.set_configured_ip()
 
-        ## Only trigger update
+        ## Only trigger update if link status has changed
         if self._link_status != link_status:
             self._link_status = link_status
             _LOGGER.info("%s state=%s", self._name, link_status)
             self.schedule_update_ha_state()
 
+        self._updated = True
+
 
 class LinkRttSensor(Entity):
     """Sensor that tracks rtt to probe server."""
 
-    def __init__(self, hass, name, link_count, link_rtt_config):
+    def __init__(self, hass, entity_id, name, link_count, link_rtt_config):
         """Initialise the internet status sensor."""
         self._data = hass.data[DOMAIN]
+        self._unique_id = entity_id
         self._name = name
         self._rtt = None
         self._rtt_array = None
-        _LOGGER.debug("%s: link_count=%s, rtt_config=%s",
-            name, link_count, link_rtt_config)
+
+        self.entity_id = entity_id
+        self._updated = False
+        _LOGGER.debug("%s: entity_id=%s, link_count=%s, rtt_config=%s",
+            name, entity_id, link_count, link_rtt_config)
 
     @property
     def name(self):
@@ -210,13 +224,19 @@ class LinkRttSensor(Entity):
         """Polling not required as link binary_sensors will update sensor."""
         return False
 
+    @property
+    def unique_id(self):
+        """Return a unique ID."""
+        return self._unique_id
+
     def update(self):
         """Update the sensor. Updated by the link binary_sensors"""
+        self._updated = True
         return
 
     def set_rtt(self, rtt, rtt_array):
         """Update rtt data."""
         self._rtt = rtt
         self._rtt_array = rtt_array
-        if self.entity_id:
+        if self._updated:
             self.schedule_update_ha_state()

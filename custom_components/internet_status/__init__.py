@@ -55,20 +55,19 @@ CONFIG_SCHEMA = vol.Schema({
         vol.Optional(CONF_SCAN_INTERVAL, default=DEF_SCAN_INTERVAL): cv.positive_time_period,
         vol.Optional(CONF_TIMEOUT, default=DEF_TIMEOUT): cv.socket_timeout,
         vol.Optional(CONF_RETRIES, default=DEF_RETRIES): cv.positive_int,
-        vol.Required(CONF_LINKS): vol.All(cv.ensure_list, [ LINK_SCHEMA ]),
+        # vol.Required(CONF_LINKS): vol.All(cv.ensure_list, [ LINK_SCHEMA ]),
+        vol.Required(CONF_LINKS): cv.schema_with_slug_keys(LINK_SCHEMA),
     }),
 }, extra=vol.ALLOW_EXTRA)
 
 def setup(hass, config):
     """Set up the internet link status component."""
-    _LOGGER.debug("setup component: config=%s", config[DOMAIN])
+    _LOGGER.info("setup component: config=%s", config[DOMAIN])
     if DOMAIN not in hass.data:
         hass.data[DOMAIN] = { DATA_DOMAIN_CONFIG: config[DOMAIN] }
 
     ## Setup platforms. Load link sensors first
     discovery.load_platform(hass, "binary_sensor", DOMAIN, {}, config)
-    # _LOGGER.debug("sleeping")
-    # time.sleep(5)
     discovery.load_platform(hass, "sensor", DOMAIN, {}, config)
 
     return True

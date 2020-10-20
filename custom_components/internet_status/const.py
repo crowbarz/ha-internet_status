@@ -45,5 +45,6 @@ DATA_DOMAIN_CONFIG = "domain_config"
 DATA_SENSOR_ENTITY = "sensor_entity"
 DATA_PRIMARY_LINK_ENTITY = "primary_link_entity"
 DATA_SECONDARY_LINK_ENTITIES = "secondary_link_entities"
+## index of link_entities correlates with index of link_rtt_entities
 DATA_LINK_ENTITIES = "link_entities"
 DATA_LINK_RTT_ENTITIES = "link_rtt_entities"

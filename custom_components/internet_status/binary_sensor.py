@@ -50,8 +50,7 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
-UPDATE_THROTTLE = timedelta(seconds=10)
-SCAN_INTERVAL = timedelta(minutes=1)
+UPDATE_THROTTLE = timedelta(seconds=1)
 PARALLEL_UPDATES = 0
 LINK_STATUS_ICON = 'mdi:wan'
 
@@ -62,14 +61,16 @@ def setup_platform(hass, config, add_entities, discovery_info=None):
         return
 
     domain_config = hass.data[DOMAIN][DATA_DOMAIN_CONFIG]
+    entities = []
 
-    _LOGGER.debug("setting up internet link status binary sensors")
+    _LOGGER.info("setting up internet link status binary sensors")
     link_entities = []
     secondary_entities = []
     link_count = 0
     try:
-        for link_config in domain_config[CONF_LINKS]:
+        for entity_id, link_config in domain_config[CONF_LINKS].items():
             link_count += 1
+            entity_id = "binary_sensor." + entity_id + "_status"
             name = link_config.get(CONF_NAME,
                 (DEF_LINK_NAME % link_count) + DEF_LINK_NAME_SUFFIX)
             link_type = link_config.get(CONF_LINK_TYPE)
@@ -87,53 +88,56 @@ def setup_platform(hass, config, add_entities, discovery_info=None):
                     name, CONF_LINK_TYPE, LINK_TYPE_SECONDARY)
                 link_type = LINK_TYPE_SECONDARY
 
-            entity = LinkStatusBinarySensor(hass, name, link_count, link_type,
-                probe_server, probe_type, scan_interval, timeout, retries,
-                link_config)
+            entity = LinkStatusBinarySensor(hass, entity_id, name, link_count,
+                link_type, probe_server, probe_type, timeout,
+                retries, link_config)
+
+            ## Schedule this entity to update every scan_interval
+            track_time_interval(hass, entity.update_entity_states, scan_interval)
+
             link_entities.append(entity)
-            if link_type == LINK_TYPE_PRIMARY:
-                hass.data[DOMAIN][DATA_PRIMARY_LINK_ENTITY] = entity
-            elif link_type == LINK_TYPE_SECONDARY:
-                secondary_entities.append(entity)
+            if entity:
+                entities.append(entity)
+                if link_type == LINK_TYPE_PRIMARY:
+                    hass.data[DOMAIN][DATA_PRIMARY_LINK_ENTITY] = entity
+                elif link_type == LINK_TYPE_SECONDARY:
+                    secondary_entities.append(entity)
         hass.data[DOMAIN][DATA_SECONDARY_LINK_ENTITIES] = secondary_entities
         hass.data[DOMAIN][DATA_LINK_ENTITIES] = link_entities
-        add_entities(link_entities, True)
+        add_entities(entities, True)
         if DATA_PRIMARY_LINK_ENTITY not in hass.data[DOMAIN]:
             _LOGGER.warning("no primary link specified, internet link sensor will not be updated")
-
     except RuntimeError as exc:
         _LOGGER.error("Error creating binary sensors: %s", exc)
 
 class LinkStatusBinarySensor(BinarySensorEntity):
     """Sensor to check the status of an internet link."""
 
-    def __init__(self, hass, name, link_count, link_type, probe_server,
-                 probe_type, scan_interval, timeout, retries, probe_config):
+    def __init__(self, hass, entity_id, name, link_count, link_type, probe_server,
+                 probe_type, timeout, retries, probe_config):
         """Initialise the link check sensor."""
         self._data = hass.data[DOMAIN]
+        self._unique_id = entity_id
         self._name = name
         self._link_type = link_type
         self._link_count = link_count
         self._probe_type = probe_type
-        self._scan_interval = scan_interval
         self._timeout = timeout
         self._retries = retries
         self._reverse_hostname = probe_config.get(CONF_REVERSE_HOSTNAME)
 
+        self.entity_id = entity_id
+        self._updated = False
         self.configured_ip = probe_config.get(CONF_CONFIGURED_IP)
-        self.sensor_entity = None
         self.current_ip = None
         self.link_up = None
         self.link_failover = False
-        self.rtt = None
-        self.rtt_array = None
-        self.ip_last_updated = None
+        self._ip_last_updated = None
 
         probe_host = None
-        _LOGGER.debug("%s: link_count=%d, link_type=%s, probe_server=%s, probe_type=%s, scan_interval=%s, timeout=%s, retries=%s, reverse_hostname=%s, configured_ip=%s, probe_config=%s",
-            name, link_count, link_type, probe_server, probe_type, scan_interval,
-            timeout, retries, self._reverse_hostname, self.configured_ip,
-            probe_config)
+        _LOGGER.debug("%s: entity_id=%s, link_count=%d, link_type=%s, probe_server=%s, probe_type=%s, timeout=%s, retries=%s, reverse_hostname=%s, configured_ip=%s",
+            name, entity_id, link_count, link_type, probe_server, probe_type,
+            timeout, retries, self._reverse_hostname, self.configured_ip)
         try:
             ## Attempt to parse as IP address
             dns.ipv4.inet_aton(probe_server)
@@ -149,9 +153,6 @@ class LinkStatusBinarySensor(BinarySensorEntity):
                 raise RuntimeError('could not resolve %s: %s' % (probe_server, exc)) from exc
 
         self._probe_host = probe_host
-
-        ## Schedule this entity to update every scan_interval
-        track_time_interval(hass, self._update_entity_states, scan_interval)
 
     @property
     def name(self):
@@ -176,7 +177,7 @@ class LinkStatusBinarySensor(BinarySensorEntity):
     @property
     def device_state_attributes(self):
         """Return the state attributes."""
-        ip_last_updated = self.ip_last_updated
+        ip_last_updated = self._ip_last_updated
         attrs = {
             ATTR_CONFIGURED_IP: self.configured_ip,
             ATTR_CURRENT_IP: self.current_ip,
@@ -190,6 +191,11 @@ class LinkStatusBinarySensor(BinarySensorEntity):
     def should_poll(self):
         """Polling not required as we set up our own poller."""
         return False
+
+    @property
+    def unique_id(self):
+        """Return a unique ID."""
+        return self._unique_id
 
     def dns_probe(self, resolver):
         """Obtain public IP address using a probe."""
@@ -240,7 +246,7 @@ class LinkStatusBinarySensor(BinarySensorEntity):
             _LOGGER.warning("reverse lookup for %s failed: %s", current_ip, str(exc))
             return None
 
-    def _update_entity_states(self, now):
+    def update_entity_states(self, now):
         """Update triggered by track_time_interval."""
         self.update()
 
@@ -275,7 +281,7 @@ class LinkStatusBinarySensor(BinarySensorEntity):
             _LOGGER.info("%s up, current_ip=%s", self._name, current_ip)
             self.current_ip = current_ip
             if current_ip is not None:
-                self.ip_last_updated = time.time()
+                self._ip_last_updated = time.time()
 
         ## Calculate rtt and update rtt sensor
         rtt = round(sum(rtt_array)/len(rtt_array), 3) if rtt_array else None
@@ -286,7 +292,8 @@ class LinkStatusBinarySensor(BinarySensorEntity):
                 rtt_entity.set_rtt(rtt, rtt_array)
                 _LOGGER.debug("%s rtt=%.3f rtt_array=%s", name, rtt, rtt_array)
         if current_ip is None:
-            if self.link_up == True:
+            if self.link_up:
+                ## Generate info message only when first link down detected
                 _LOGGER.info("%s down, unable to reach server %s after %d retries",
                     name, probe_host, retries)
             else:
@@ -315,19 +322,22 @@ class LinkStatusBinarySensor(BinarySensorEntity):
         if sensor_entity and link_type != LINK_TYPE_MONITOR_ONLY:
             sensor_entity.update()
 
+        ## Avoid calling self.schedule_update_ha_state during initial update
+        self._updated = True
+
     def set_failover(self):
         """Set link to failed over state."""
         if self.link_up or not self.link_failover:
             self.link_up = False
             self.link_failover = True
-            if self.entity_id:
+            if self._updated:
                 self.schedule_update_ha_state()
 
     def clear_failover(self):
         """Clear link failover state."""
         if self.link_failover:
             self.link_failover = False
-            if self.entity_id:
+            if self._updated:
                 self.schedule_update_ha_state()
 
     def set_configured_ip(self):
@@ -337,6 +347,6 @@ class LinkStatusBinarySensor(BinarySensorEntity):
         if configured_ip != current_ip:
             self.configured_ip = current_ip
             if configured_ip is not None:
-                self.ip_last_updated = time.time()
-            if self.entity_id:
+                self._ip_last_updated = time.time()
+            if self._updated:
                 self.schedule_update_ha_state()
