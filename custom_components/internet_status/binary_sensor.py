@@ -148,7 +148,7 @@ class LinkStatusBinarySensor(BinarySensorEntity):
         if probe_host is None:
             ## Attempt to resolve as DNS name
             try:
-                probe_host = str(dns.resolver.query(probe_server)[0])
+                probe_host = str(dns.resolver.query(probe_server, lifetime=timeout)[0])
             except dns.exception.DNSException as exc:
                 raise RuntimeError('could not resolve %s: %s' % (probe_server, exc)) from exc
 
@@ -167,7 +167,7 @@ class LinkStatusBinarySensor(BinarySensorEntity):
     @property
     def is_on(self):
         """Return true if the binary sensor is on."""
-        return self.link_up
+        return self.link_up and not self.link_failover
 
     @property
     def device_class(self):
@@ -227,20 +227,25 @@ class LinkStatusBinarySensor(BinarySensorEntity):
             _LOGGER.debug("failed: probe type %s for server %s: %s", probe_type, probe_host, exc)
             return None
 
-        _LOGGER.debug("probe %s for server %s returned IP %s", probe_type, probe_host, current_ip)
+        _LOGGER.debug("success: probe %s for server %s returned IP %s", probe_type, probe_host, current_ip)
         return current_ip
 
     def dns_reverse_lookup_check(self):
         """Reverse DNS lookup current IP and match with reverse hostname."""
         current_ip = self.current_ip
+        reverse_hostname = self._reverse_hostname
+        timeout = self._timeout
         rquery = []
         ptr = ''
         try:
-            rquery = dns.resolver.query(dns.reversename.from_address(current_ip), "PTR")
+            rquery = dns.resolver.query(dns.reversename.from_address(current_ip),
+                "PTR", lifetime=timeout)
             ptr = str(rquery[0])
-            if self._reverse_hostname in ptr:
+            if reverse_hostname in ptr:
+                _LOGGER.debug("success: reverse lookup: %s in %s", reverse_hostname, ptr)
                 return True
             else:
+                _LOGGER.debug("failed: reverse lookup: %s not in %s", reverse_hostname, ptr)
                 return False
         except dns.exception.DNSException as exc:
             _LOGGER.warning("reverse lookup for %s failed: %s", current_ip, str(exc))
@@ -277,11 +282,6 @@ class LinkStatusBinarySensor(BinarySensorEntity):
                 rtt_array.append(rtt)
                 if count < retries-1 and rtt < timeout*1000:
                     time.sleep(timeout-rtt/1000)
-        if self.current_ip != current_ip:
-            _LOGGER.info("%s up, current_ip=%s", self._name, current_ip)
-            self.current_ip = current_ip
-            if current_ip is not None:
-                self._ip_last_updated = time.time()
 
         ## Calculate rtt and update rtt sensor
         rtt = round(sum(rtt_array)/len(rtt_array), 3) if rtt_array else None
@@ -290,32 +290,46 @@ class LinkStatusBinarySensor(BinarySensorEntity):
             rtt_entity = rtt_entities[self._link_count-1]
             if rtt_entity:
                 rtt_entity.set_rtt(rtt, rtt_array)
-        if current_ip is None:
-            if self.link_up:
-                ## Generate info message only when first link down detected
+
+        ## Check whether IP address has changed
+        if self.current_ip != current_ip:
+            self.current_ip = current_ip
+            if current_ip is not None:
+                ## Link is up
+                self._ip_last_updated = time.time()
+                if reverse_hostname:
+                    ## Perform reverse DNS matching
+                    link_up = self.dns_reverse_lookup_check()
+                    _LOGGER.debug("%s reverse_check=%s, current_ip=%s", name, link_up, current_ip)
+                    if link_up:
+                        if self.configured_ip is None:
+                            _LOGGER.info("%s up (configured IP set), current_ip=%s", name, current_ip)
+                            self.configured_ip = current_ip
+                        elif self.configured_ip != current_ip:
+                            _LOGGER.info("%s up (IP address changed), current_ip=%s", name, current_ip)
+                        else:
+                            _LOGGER.info("%s up (reverse check ok), current_ip=%s", name, current_ip)
+                    else:
+                        _LOGGER.info("%s down (reverse check failed), current_ip=%s", name, current_ip)
+                elif self.link_failover:
+                    _LOGGER.info("%s up (failover), current_ip=%s", name, current_ip)
+                else:
+                    _LOGGER.info("%s up, current_ip=%s", name, current_ip)
+            else:
                 _LOGGER.info("%s down, unable to reach server %s after %d retries",
                     name, probe_host, retries)
-            else:
-                _LOGGER.debug("%s down, unable to reach server %s after %d retries",
-                    name, probe_host, retries)
-
-            link_up = False
+                link_up = False
+        # else: ## IP address has not changed, link is up
+        if link_up is False:
             self.link_failover = False
+        if self.link_up == link_up:
+            return ## link status unchanged
 
-        if current_ip and reverse_hostname:
-            ## Perform reverse DNS matching
-            link_up = self.dns_reverse_lookup_check()
-
-        if not self.link_failover:
-            if self.link_up != link_up:
-                ## Update link status if not failed over
-                self.link_up = link_up
-            else:
-                ## No link status change, no need to update parent
-                return
-
+        ## Link status has changed
+        self.link_up = link_up
         if self._link_type == LINK_TYPE_MONITOR_ONLY:
-            ## Update configured_ip for monitor-only links
+            ## Update configured_ip for monitor-only links where not manually
+            ## configured or where not set via reverse_hostname
             ## NOTE: does not work if probe_server has active backup route
             ##       when component is started as it sets wrong configured_ip
             if link_up and self.configured_ip is None:
@@ -325,7 +339,6 @@ class LinkStatusBinarySensor(BinarySensorEntity):
             sensor_entity = self._data[DATA_SENSOR_ENTITY]
             if sensor_entity:
                 sensor_entity.update()
-
 
         ## Avoid calling self.schedule_update_ha_state during initial update
         self._updated = True
