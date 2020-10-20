@@ -311,15 +311,21 @@ class LinkStatusBinarySensor(BinarySensorEntity):
                 ## Update link status if not failed over
                 self.link_up = link_up
             else:
-                ## No link status change, don't update parent
+                ## No link status change, no need to update parent
                 return
 
-        ## self.link_up and self.configured_ip are set/updated by
-        ## parent entity for non-VPN links
-        sensor_entity = self._data[DATA_SENSOR_ENTITY]
-        link_type = self._link_type
-        if sensor_entity and link_type != LINK_TYPE_MONITOR_ONLY:
-            sensor_entity.update()
+        if self._link_type == LINK_TYPE_MONITOR_ONLY:
+            ## Update configured_ip for monitor-only links
+            ## NOTE: does not work if probe_server has active backup route
+            ##       when component is started as it sets wrong configured_ip
+            if link_up and self.configured_ip is None:
+                self.configured_ip = self.current_ip
+        else:
+            ## Update parent entity for primary and secondary links
+            sensor_entity = self._data[DATA_SENSOR_ENTITY]
+            if sensor_entity:
+                sensor_entity.update()
+
 
         ## Avoid calling self.schedule_update_ha_state during initial update
         self._updated = True
