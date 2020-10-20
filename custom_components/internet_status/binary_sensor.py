@@ -290,7 +290,6 @@ class LinkStatusBinarySensor(BinarySensorEntity):
             rtt_entity = rtt_entities[self._link_count-1]
             if rtt_entity:
                 rtt_entity.set_rtt(rtt, rtt_array)
-                _LOGGER.debug("%s rtt=%.3f rtt_array=%s", name, rtt, rtt_array)
         if current_ip is None:
             if self.link_up:
                 ## Generate info message only when first link down detected

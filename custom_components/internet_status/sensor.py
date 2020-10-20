@@ -58,6 +58,7 @@ def setup_platform(hass, config, add_entities, discovery_info=None):
             entity = LinkRttSensor(hass, entity_id, name, link_count,
                 link_rtt_config)
         link_rtt_entities.append(entity)
+        entities.append(entity)
     hass.data[DOMAIN][DATA_LINK_RTT_ENTITIES] = link_rtt_entities
 
     ## Add sensors to platform
@@ -238,5 +239,6 @@ class LinkRttSensor(Entity):
         """Update rtt data."""
         self._rtt = rtt
         self._rtt_array = rtt_array
+        _LOGGER.debug("%s rtt=%.3f rtt_array=%s", self._name, rtt, rtt_array)
         if self._updated:
             self.schedule_update_ha_state()
