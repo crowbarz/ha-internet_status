@@ -17,7 +17,6 @@ from .const import (
     DATA_SECONDARY_LINK_ENTITIES,
     DATA_LINK_RTT_ENTITIES,
     ATTR_RTT,
-    ATTR_RTT_ARRAY,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -215,8 +214,7 @@ class LinkRttSensor(Entity):
     def device_state_attributes(self):
         """Return the state attributes."""
         attrs = {
-            ATTR_RTT: self._rtt,
-            ATTR_RTT_ARRAY: self._rtt_array
+            ATTR_RTT: self._rtt_array
         }
         return attrs
 

@@ -39,7 +39,6 @@ ATTR_CURRENT_IP = 'current_ip'
 ATTR_IP_LAST_UPDATED = 'ip_last_updated'
 ATTR_LINK_FAILOVER = 'link_failover'
 ATTR_RTT = 'rtt'
-ATTR_RTT_ARRAY = 'rtt_array'
 
 DATA_DOMAIN_CONFIG = "domain_config"
 DATA_SENSOR_ENTITY = "sensor_entity"
