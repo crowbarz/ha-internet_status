@@ -9,6 +9,7 @@ from .const import (
     DOMAIN,
     CONF_LINKS,
     CONF_RTT_SENSOR,
+    CONF_UPDATE_RATIO,
     DEF_LINK_NAME,
     DEF_LINK_RTT_SUFFIX,
     DATA_DOMAIN_CONFIG,
@@ -184,11 +185,13 @@ class LinkRttSensor(Entity):
         self._name = name
         self._rtt = None
         self._rtt_array = None
+        self._update_count = None
+        self._update_ratio = link_rtt_config[CONF_UPDATE_RATIO]
 
         self.entity_id = entity_id
         self._updated = False
-        _LOGGER.debug("%s: entity_id=%s, link_count=%s, rtt_config=%s",
-            name, entity_id, link_count, link_rtt_config)
+        _LOGGER.debug("%s: entity_id=%s, link_count=%d, update_ratio=%d, rtt_config=%s",
+            name, entity_id, link_count, self._update_ratio, link_rtt_config)
 
     @property
     def name(self):
@@ -235,8 +238,12 @@ class LinkRttSensor(Entity):
 
     def set_rtt(self, rtt, rtt_array):
         """Update rtt data."""
-        self._rtt = rtt
-        self._rtt_array = rtt_array
-        _LOGGER.debug("%s rtt=%.3f rtt_array=%s", self._name, rtt, rtt_array)
-        if self._updated:
-            self.schedule_update_ha_state()
+        if self._update_count is None or self._update_count >= self._update_ratio:
+            self._update_count = 1
+            self._rtt = rtt
+            self._rtt_array = rtt_array
+            _LOGGER.debug("%s rtt=%.3f rtt_array=%s", self._name, rtt, rtt_array)
+            if self._updated:
+                self.schedule_update_ha_state()
+        else:
+            self._update_count += 1

@@ -13,6 +13,7 @@ CONF_TIMEOUT = 'timeout'
 CONF_RETRIES = 'retries'
 CONF_REVERSE_HOSTNAME = 'reverse_hostname'
 CONF_RTT_SENSOR = 'rtt_sensor'
+CONF_UPDATE_RATIO = 'update_ratio'
 
 LINK_TYPE_PRIMARY = 'primary'
 LINK_TYPE_SECONDARY = 'secondary'
@@ -22,11 +23,11 @@ PROBE_TYPE_GOOGLE = 'google'
 PROBE_TYPE_OPENDNS = 'opendns'
 PROBE_TYPE_AKAMAI = 'akamai'
 
-DEF_SCAN_INTERVAL = timedelta(minutes=1)
+DEF_SCAN_INTERVAL = timedelta(seconds=30)
 DEF_TIMEOUT = 1.0
 DEF_RETRIES = 3
+DEF_UPDATE_RATIO = 10
 DEF_LINK_TYPE = LINK_TYPE_MONITOR_ONLY
-
 DEF_NAME = "Internet Status"
 DEF_LINK_NAME = "Link %d"
 DEF_LINK_NAME_SUFFIX = " Status"

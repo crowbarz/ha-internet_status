@@ -22,9 +22,11 @@ from .const import (
     CONF_RETRIES,
     CONF_REVERSE_HOSTNAME,
     CONF_RTT_SENSOR,
+    CONF_UPDATE_RATIO,
     DEF_SCAN_INTERVAL,
     DEF_TIMEOUT,
     DEF_RETRIES,
+    DEF_UPDATE_RATIO,
     DEF_LINK_TYPE,
     DEF_NAME,
     DATA_DOMAIN_CONFIG,
@@ -34,6 +36,7 @@ _LOGGER = logging.getLogger(__name__)
 
 RTT_SCHEMA = vol.Schema({
     vol.Optional(CONF_NAME): cv.string,
+    vol.Optional(CONF_UPDATE_RATIO, default=DEF_UPDATE_RATIO): cv.positive_int,
 })
 
 LINK_SCHEMA = vol.Schema({
