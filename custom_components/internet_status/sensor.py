@@ -22,8 +22,9 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
-INTERNET_STATUS_ICON = 'mdi:wan'
-LINK_RTT_ICON = 'mdi:lan-connect'
+INTERNET_STATUS_ICON = "mdi:wan"
+LINK_RTT_ICON = "mdi:lan-connect"
+
 
 def setup_platform(hass, config, add_entities, discovery_info=None):
     """Set up the internet status sensor."""
@@ -42,7 +43,7 @@ def setup_platform(hass, config, add_entities, discovery_info=None):
     entities.append(internet_status_entity)
 
     _LOGGER.info("setting up link rtt sensors")
-    link_rtt_entities = [ ]
+    link_rtt_entities = []
     link_count = 0
     for entity_id, link_config in domain_config[CONF_LINKS].items():
         link_count += 1
@@ -55,14 +56,14 @@ def setup_platform(hass, config, add_entities, discovery_info=None):
             else:
                 name = (DEF_LINK_NAME % link_count) + DEF_LINK_RTT_SUFFIX
             name = link_rtt_config.get(CONF_NAME, name)
-            entity = LinkRttSensor(hass, entity_id, name, link_count,
-                link_rtt_config)
+            entity = LinkRttSensor(hass, entity_id, name, link_count, link_rtt_config)
         link_rtt_entities.append(entity)
         entities.append(entity)
     hass.data[DOMAIN][DATA_LINK_RTT_ENTITIES] = link_rtt_entities
 
     ## Add sensors to platform
     add_entities(entities, True)
+
 
 class InternetStatusSensor(Entity):
     """Sensor that determines the status of internet access."""
@@ -96,8 +97,7 @@ class InternetStatusSensor(Entity):
     @property
     def device_state_attributes(self):
         """Return the state attributes."""
-        attrs = {
-        }
+        attrs = {}
         return attrs
 
     @property
@@ -114,7 +114,7 @@ class InternetStatusSensor(Entity):
         """Update the sensor."""
 
         ## Get entities
-        link_status = 'up'
+        link_status = "up"
         primary_entity = self._data.get(DATA_PRIMARY_LINK_ENTITY)
         secondary_entity = None
         secondary_entities = self._data.get(DATA_SECONDARY_LINK_ENTITIES)
@@ -140,22 +140,22 @@ class InternetStatusSensor(Entity):
         ## Check link failover status
         if not primary_link_up:
             ## Primary link failed but has not failed over to secondary yet
-            link_status = 'degraded (primary down)'
+            link_status = "degraded (primary down)"
             if not secondary_link_up:
                 ## Both primary and secondary links have failed
-                link_status = 'down'
+                link_status = "down"
         elif not secondary_link_up:
             ## Secondary link failed but has not failed over to primary yet
             ## Primary link is up from previous check
-            link_status = 'degraded (secondary down)'
+            link_status = "degraded (secondary down)"
         elif primary_current_ip == secondary_current_ip:
             ## One of the links has failed and both paths are using the same link
-            link_status = 'failover'
+            link_status = "failover"
             if primary_current_ip == secondary_configured_ip:
-                link_status = 'failover (primary down)'
+                link_status = "failover (primary down)"
                 primary_entity.set_failover()
             elif secondary_current_ip == primary_configured_ip:
-                link_status = 'failover (secondary down)'
+                link_status = "failover (secondary down)"
                 secondary_entity.set_failover()
         else:
             ## Normal, update configured IP if not specified
@@ -190,8 +190,14 @@ class LinkRttSensor(Entity):
 
         self.entity_id = entity_id
         self._updated = False
-        _LOGGER.debug("%s: entity_id=%s, link_count=%d, update_ratio=%d, rtt_config=%s",
-            name, entity_id, link_count, self._update_ratio, link_rtt_config)
+        _LOGGER.debug(
+            "%s: entity_id=%s, link_count=%d, update_ratio=%d, rtt_config=%s",
+            name,
+            entity_id,
+            link_count,
+            self._update_ratio,
+            link_rtt_config,
+        )
 
     @property
     def name(self):
@@ -216,9 +222,7 @@ class LinkRttSensor(Entity):
     @property
     def device_state_attributes(self):
         """Return the state attributes."""
-        attrs = {
-            ATTR_RTT: self._rtt_array
-        }
+        attrs = {ATTR_RTT: self._rtt_array}
         return attrs
 
     @property

@@ -1,8 +1,8 @@
 """Monitor internet link status via DNS queries."""
 
 import logging
-import time
 import voluptuous as vol
+from threading import Event
 
 import homeassistant.helpers.config_validation as cv
 from homeassistant.const import (
@@ -30,44 +30,58 @@ from .const import (
     DEF_LINK_TYPE,
     DEF_NAME,
     DATA_DOMAIN_CONFIG,
-    )
+)
 
 _LOGGER = logging.getLogger(__name__)
 
-RTT_SCHEMA = vol.Schema({
-    vol.Optional(CONF_NAME): cv.string,
-    vol.Optional(CONF_UPDATE_RATIO, default=DEF_UPDATE_RATIO): cv.positive_int,
-})
+RTT_SCHEMA = vol.Schema(
+    {
+        vol.Optional(CONF_NAME): cv.string,
+        vol.Optional(CONF_UPDATE_RATIO, default=DEF_UPDATE_RATIO): cv.positive_int,
+    }
+)
 
-LINK_SCHEMA = vol.Schema({
-    vol.Optional(CONF_NAME): cv.string,
-    vol.Optional(CONF_LINK_TYPE, default=DEF_LINK_TYPE): cv.string,
-    vol.Optional(CONF_PROBE_SERVER): cv.string,
-    vol.Optional(CONF_PROBE_TYPE): cv.string,
-    vol.Optional(CONF_SCAN_INTERVAL): cv.positive_time_period,
-    vol.Optional(CONF_TIMEOUT): cv.socket_timeout,
-    vol.Optional(CONF_RETRIES): cv.positive_int,
-    vol.Optional(CONF_CONFIGURED_IP): cv.string,
-    vol.Optional(CONF_REVERSE_HOSTNAME): cv.string,
-    vol.Optional(CONF_RTT_SENSOR): RTT_SCHEMA,
-})
+LINK_SCHEMA = vol.Schema(
+    {
+        vol.Optional(CONF_NAME): cv.string,
+        vol.Optional(CONF_LINK_TYPE, default=DEF_LINK_TYPE): cv.string,
+        vol.Optional(CONF_PROBE_SERVER): cv.string,
+        vol.Optional(CONF_PROBE_TYPE): cv.string,
+        vol.Optional(CONF_SCAN_INTERVAL): cv.positive_time_period,
+        vol.Optional(CONF_TIMEOUT): cv.socket_timeout,
+        vol.Optional(CONF_RETRIES): cv.positive_int,
+        vol.Optional(CONF_CONFIGURED_IP): cv.string,
+        vol.Optional(CONF_REVERSE_HOSTNAME): cv.string,
+        vol.Optional(CONF_RTT_SENSOR): RTT_SCHEMA,
+    }
+)
 
-CONFIG_SCHEMA = vol.Schema({
-    DOMAIN: vol.Schema({
-        vol.Optional(CONF_NAME, default=DEF_NAME): cv.string,
-        vol.Optional(CONF_SCAN_INTERVAL, default=DEF_SCAN_INTERVAL): cv.positive_time_period,
-        vol.Optional(CONF_TIMEOUT, default=DEF_TIMEOUT): cv.socket_timeout,
-        vol.Optional(CONF_RETRIES, default=DEF_RETRIES): cv.positive_int,
-        # vol.Required(CONF_LINKS): vol.All(cv.ensure_list, [ LINK_SCHEMA ]),
-        vol.Required(CONF_LINKS): cv.schema_with_slug_keys(LINK_SCHEMA),
-    }),
-}, extra=vol.ALLOW_EXTRA)
+CONFIG_SCHEMA = vol.Schema(
+    {
+        DOMAIN: vol.Schema(
+            {
+                vol.Optional(CONF_NAME, default=DEF_NAME): cv.string,
+                vol.Optional(
+                    CONF_SCAN_INTERVAL, default=DEF_SCAN_INTERVAL
+                ): cv.positive_time_period,
+                vol.Optional(CONF_TIMEOUT, default=DEF_TIMEOUT): cv.socket_timeout,
+                vol.Optional(CONF_RETRIES, default=DEF_RETRIES): cv.positive_int,
+                # vol.Required(CONF_LINKS): vol.All(cv.ensure_list, [ LINK_SCHEMA ]),
+                vol.Required(CONF_LINKS): cv.schema_with_slug_keys(LINK_SCHEMA),
+            }
+        ),
+    },
+    extra=vol.ALLOW_EXTRA,
+)
+
 
 def setup(hass, config):
     """Set up the internet link status component."""
     _LOGGER.info("setup component: config=%s", config[DOMAIN])
     if DOMAIN not in hass.data:
-        hass.data[DOMAIN] = { DATA_DOMAIN_CONFIG: config[DOMAIN] }
+        hass.data[DOMAIN] = {
+            DATA_DOMAIN_CONFIG: config[DOMAIN],
+        }
 
     ## Setup platforms. Load link sensors first
     discovery.load_platform(hass, "binary_sensor", DOMAIN, {}, config)

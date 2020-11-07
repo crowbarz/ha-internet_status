@@ -2,26 +2,26 @@
 
 from datetime import timedelta
 
-DOMAIN = 'internet_status'
+DOMAIN = "internet_status"
 
-CONF_LINKS = 'links'
-CONF_LINK_TYPE = 'link_type'
-CONF_PROBE_SERVER = 'probe_server'
-CONF_PROBE_TYPE = 'probe_type'
-CONF_CONFIGURED_IP = 'configured_ip'
-CONF_TIMEOUT = 'timeout'
-CONF_RETRIES = 'retries'
-CONF_REVERSE_HOSTNAME = 'reverse_hostname'
-CONF_RTT_SENSOR = 'rtt_sensor'
-CONF_UPDATE_RATIO = 'update_ratio'
+CONF_LINKS = "links"
+CONF_LINK_TYPE = "link_type"
+CONF_PROBE_SERVER = "probe_server"
+CONF_PROBE_TYPE = "probe_type"
+CONF_CONFIGURED_IP = "configured_ip"
+CONF_TIMEOUT = "timeout"
+CONF_RETRIES = "retries"
+CONF_REVERSE_HOSTNAME = "reverse_hostname"
+CONF_RTT_SENSOR = "rtt_sensor"
+CONF_UPDATE_RATIO = "update_ratio"
 
-LINK_TYPE_PRIMARY = 'primary'
-LINK_TYPE_SECONDARY = 'secondary'
-LINK_TYPE_MONITOR_ONLY = 'monitor_only'
+LINK_TYPE_PRIMARY = "primary"
+LINK_TYPE_SECONDARY = "secondary"
+LINK_TYPE_MONITOR_ONLY = "monitor_only"
 
-PROBE_TYPE_GOOGLE = 'google'
-PROBE_TYPE_OPENDNS = 'opendns'
-PROBE_TYPE_AKAMAI = 'akamai'
+PROBE_TYPE_GOOGLE = "google"
+PROBE_TYPE_OPENDNS = "opendns"
+PROBE_TYPE_AKAMAI = "akamai"
 
 DEF_SCAN_INTERVAL = timedelta(seconds=30)
 DEF_TIMEOUT = 1.0
@@ -36,10 +36,10 @@ DEF_LINK_PROBE_SERVER = "ns%d.google.com"
 DEF_LINK_PROBE_TYPE = PROBE_TYPE_GOOGLE
 
 ATTR_CONFIGURED_IP = CONF_CONFIGURED_IP
-ATTR_CURRENT_IP = 'current_ip'
-ATTR_IP_LAST_UPDATED = 'ip_last_updated'
-ATTR_LINK_FAILOVER = 'link_failover'
-ATTR_RTT = 'rtt'
+ATTR_CURRENT_IP = "current_ip"
+ATTR_IP_LAST_UPDATED = "ip_last_updated"
+ATTR_LINK_FAILOVER = "link_failover"
+ATTR_RTT = "rtt"
 
 DATA_DOMAIN_CONFIG = "domain_config"
 DATA_SENSOR_ENTITY = "sensor_entity"
