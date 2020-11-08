@@ -14,6 +14,8 @@ CONF_RETRIES = "retries"
 CONF_REVERSE_HOSTNAME = "reverse_hostname"
 CONF_RTT_SENSOR = "rtt_sensor"
 CONF_UPDATE_RATIO = "update_ratio"
+CONF_DEBUG_PROBE = "debug_probe"
+CONF_DEBUG_RTT = "debug_rtt"
 
 LINK_TYPE_PRIMARY = "primary"
 LINK_TYPE_SECONDARY = "secondary"
@@ -34,6 +36,8 @@ DEF_LINK_NAME_SUFFIX = " Status"
 DEF_LINK_RTT_SUFFIX = " Round Trip Time"
 DEF_LINK_PROBE_SERVER = "ns%d.google.com"
 DEF_LINK_PROBE_TYPE = PROBE_TYPE_GOOGLE
+DEF_DEBUG_PROBE = False
+DEF_DEBUG_RTT = False
 
 ATTR_CONFIGURED_IP = CONF_CONFIGURED_IP
 ATTR_CURRENT_IP = "current_ip"

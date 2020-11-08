@@ -7,6 +7,7 @@ from threading import Event
 import homeassistant.helpers.config_validation as cv
 from homeassistant.const import (
     CONF_NAME,
+    CONF_ENTITY_ID,
     CONF_SCAN_INTERVAL,
 )
 from homeassistant.helpers import discovery
@@ -23,12 +24,16 @@ from .const import (
     CONF_REVERSE_HOSTNAME,
     CONF_RTT_SENSOR,
     CONF_UPDATE_RATIO,
+    CONF_DEBUG_PROBE,
+    CONF_DEBUG_RTT,
     DEF_SCAN_INTERVAL,
     DEF_TIMEOUT,
     DEF_RETRIES,
     DEF_UPDATE_RATIO,
     DEF_LINK_TYPE,
     DEF_NAME,
+    DEF_DEBUG_PROBE,
+    DEF_DEBUG_RTT,
     DATA_DOMAIN_CONFIG,
 )
 
@@ -37,7 +42,9 @@ _LOGGER = logging.getLogger(__name__)
 RTT_SCHEMA = vol.Schema(
     {
         vol.Optional(CONF_NAME): cv.string,
+        vol.Optional(CONF_ENTITY_ID): cv.entity_id,
         vol.Optional(CONF_UPDATE_RATIO, default=DEF_UPDATE_RATIO): cv.positive_int,
+        vol.Optional(CONF_DEBUG_RTT, default=DEF_DEBUG_RTT): cv.boolean,
     }
 )
 
@@ -45,6 +52,7 @@ LINK_SCHEMA = vol.Schema(
     {
         vol.Optional(CONF_NAME): cv.string,
         vol.Optional(CONF_LINK_TYPE, default=DEF_LINK_TYPE): cv.string,
+        vol.Optional(CONF_ENTITY_ID): cv.entity_id,
         vol.Optional(CONF_PROBE_SERVER): cv.string,
         vol.Optional(CONF_PROBE_TYPE): cv.string,
         vol.Optional(CONF_SCAN_INTERVAL): cv.positive_time_period,
@@ -53,6 +61,7 @@ LINK_SCHEMA = vol.Schema(
         vol.Optional(CONF_CONFIGURED_IP): cv.string,
         vol.Optional(CONF_REVERSE_HOSTNAME): cv.string,
         vol.Optional(CONF_RTT_SENSOR): RTT_SCHEMA,
+        vol.Optional(CONF_DEBUG_PROBE, default=DEF_DEBUG_PROBE): cv.boolean,
     }
 )
 
@@ -61,13 +70,14 @@ CONFIG_SCHEMA = vol.Schema(
         DOMAIN: vol.Schema(
             {
                 vol.Optional(CONF_NAME, default=DEF_NAME): cv.string,
+                vol.Optional(CONF_ENTITY_ID): cv.entity_id,
                 vol.Optional(
                     CONF_SCAN_INTERVAL, default=DEF_SCAN_INTERVAL
                 ): cv.positive_time_period,
                 vol.Optional(CONF_TIMEOUT, default=DEF_TIMEOUT): cv.socket_timeout,
                 vol.Optional(CONF_RETRIES, default=DEF_RETRIES): cv.positive_int,
-                # vol.Required(CONF_LINKS): vol.All(cv.ensure_list, [ LINK_SCHEMA ]),
-                vol.Required(CONF_LINKS): cv.schema_with_slug_keys(LINK_SCHEMA),
+                vol.Required(CONF_LINKS): vol.All(cv.ensure_list, [LINK_SCHEMA]),
+                # vol.Required(CONF_LINKS): cv.schema_with_slug_keys(LINK_SCHEMA),
             }
         ),
     },

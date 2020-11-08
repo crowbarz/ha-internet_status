@@ -1,6 +1,6 @@
 {
   "domain": "internet_status",
-  "name": "Sensor to check Internet ISP link path status via DNS",
+  "name": "Internet Status",
   "documentation": "",
   "dependencies": [],
   "codeowners": [],
