@@ -42,7 +42,7 @@ _LOGGER = logging.getLogger(__name__)
 RTT_SCHEMA = vol.Schema(
     {
         vol.Optional(CONF_NAME): cv.string,
-        vol.Optional(CONF_ENTITY_ID): cv.entity_id,
+        vol.Optional(CONF_ENTITY_ID): vol.All(cv.entity_domain("sensor"), cv.entity_id),
         vol.Optional(CONF_UPDATE_RATIO, default=DEF_UPDATE_RATIO): cv.positive_int,
         vol.Optional(CONF_DEBUG_RTT, default=DEF_DEBUG_RTT): cv.boolean,
     }
@@ -52,7 +52,9 @@ LINK_SCHEMA = vol.Schema(
     {
         vol.Optional(CONF_NAME): cv.string,
         vol.Optional(CONF_LINK_TYPE, default=DEF_LINK_TYPE): cv.string,
-        vol.Optional(CONF_ENTITY_ID): cv.entity_id,
+        vol.Optional(CONF_ENTITY_ID): vol.All(
+            cv.entity_domain("binary_sensor"), cv.entity_id
+        ),
         vol.Optional(CONF_PROBE_SERVER): cv.string,
         vol.Optional(CONF_PROBE_TYPE): cv.string,
         vol.Optional(CONF_SCAN_INTERVAL): cv.positive_time_period,
@@ -70,7 +72,9 @@ CONFIG_SCHEMA = vol.Schema(
         DOMAIN: vol.Schema(
             {
                 vol.Optional(CONF_NAME, default=DEF_NAME): cv.string,
-                vol.Optional(CONF_ENTITY_ID): cv.entity_id,
+                vol.Optional(CONF_ENTITY_ID): vol.All(
+                    cv.entity_domain("sensor"), cv.entity_id
+                ),
                 vol.Optional(
                     CONF_SCAN_INTERVAL, default=DEF_SCAN_INTERVAL
                 ): cv.positive_time_period,
