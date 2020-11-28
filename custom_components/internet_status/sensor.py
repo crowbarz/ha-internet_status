@@ -83,11 +83,7 @@ class InternetStatusSensor(Entity):
             self.entity_id = entity_id
         self._updated = False
         _LOGGER.debug(
-            "%s(%x).__init__(): unique_id=%s, entity_id=%s",
-            name,
-            id(self),
-            self._unique_id,
-            entity_id,
+            "%s.__init__(): unique_id=%s, entity_id=%s", name, self._unique_id, entity_id,
         )
 
     @property
@@ -120,9 +116,8 @@ class InternetStatusSensor(Entity):
     def unique_id(self):
         """Return a unique ID."""
         # _LOGGER.debug(
-        #     "%s(%x).unique_id(): unique_id=%s, entity_id=%s",
+        #     "%s.unique_id(): unique_id=%s, entity_id=%s",
         #     self._name,
-        #     id(self),
         #     self._unique_id,
         #     self.entity_id,
         # )
@@ -130,7 +125,7 @@ class InternetStatusSensor(Entity):
 
     def update(self):
         """Initial update of the sensor."""
-        _LOGGER.debug("%s(%x).update(): initial update", self._name, id(self))
+        _LOGGER.debug("%s.update(): initial update", self._name)
         self.set_state()
         self._updated = True
         return
@@ -138,7 +133,6 @@ class InternetStatusSensor(Entity):
     def set_state(self):
         """Update the sensor state."""
         ## Get entities
-        link_status = "up"
         primary_entity = self._data.get(DATA_PRIMARY_LINK_ENTITY)
         secondary_entity = None
         secondary_entities = self._data.get(DATA_SECONDARY_LINK_ENTITIES)
@@ -164,18 +158,25 @@ class InternetStatusSensor(Entity):
             return
 
         ## Check link failover status
+        link_status = "up"
         if not primary_link_up:
             ## Primary link failed but has not failed over to secondary yet
             link_status = "degraded (primary down)"
             if not secondary_link_up:
                 ## Both primary and secondary links have failed
                 link_status = "down"
+            elif primary_current_ip == secondary_configured_ip:
+                ## Primary failed over to secondary
+                link_status = "failover (primary down)"
+                # primary_entity.set_failover()
         elif not secondary_link_up:
-            ## Secondary link failed but has not failed over to primary yet
             ## Primary link is up from previous check
+            ## Secondary link has failed but primary link is up
             link_status = "degraded (secondary down)"
         elif primary_current_ip == secondary_current_ip:
-            ## One of the links has failed and both paths are using the same link
+            ## One of the links has failed and both paths are using the same
+            ## link. This can only occur if configured_ips are not set (links
+            ## with configured_ip are down if current_ip != configured_ip)
             link_status = "failover"
             if primary_current_ip == secondary_configured_ip:
                 link_status = "failover (primary down)"
@@ -195,18 +196,12 @@ class InternetStatusSensor(Entity):
         ## Only trigger update if link status has changed
         if self._link_status != link_status:
             self._link_status = link_status
-            _LOGGER.info("%s(%x): state=%s", self._name, id(self), link_status)
+            _LOGGER.info("%s: state=%s", self._name, link_status)
             if self._updated:
-                _LOGGER.debug(
-                    "%s(%x).set_state(): updating HA state",
-                    self._name,
-                    id(self),
-                )
+                _LOGGER.debug("%s.set_state(): updating HA state", self._name)
                 self.schedule_update_ha_state()
             else:
-                _LOGGER.debug(
-                    "%s(%x).set_state(): skipping update", self._name, id(self)
-                )
+                _LOGGER.debug("%s.set_state(): skipping update", self._name)
 
 
 class LinkRttSensor(Entity):
@@ -228,9 +223,8 @@ class LinkRttSensor(Entity):
         self._updated = False
         if self._debug_rtt:
             _LOGGER.debug(
-                "%s(%x): entity_id=%s, link_count=%d, update_ratio=%d, rtt_config=%s",
+                "%s: entity_id=%s, link_count=%d, update_ratio=%d, rtt_config=%s",
                 name,
-                id(self),
                 entity_id,
                 link_count,
                 self._update_ratio,
@@ -272,9 +266,8 @@ class LinkRttSensor(Entity):
     def unique_id(self):
         """Return a unique ID."""
         # _LOGGER.debug(
-        #     "%s(%x).unique_id(): unique_id=%s, entity_id=%s",
+        #     "%s.unique_id(): unique_id=%s, entity_id=%s",
         #     self._name,
-        #     id(self),
         #     self._unique_id,
         #     self.entity_id,
         # )
@@ -283,7 +276,7 @@ class LinkRttSensor(Entity):
     def update(self):
         """Initial update of the sensor."""
         if self._debug_rtt:
-            _LOGGER.debug("%s(%x).update(): initial update", self._name, id(self))
+            _LOGGER.debug("%s.update(): initial update", self._name)
         self._updated = True
         return
 
@@ -294,23 +287,13 @@ class LinkRttSensor(Entity):
             self._rtt = rtt
             self._rtt_array = rtt_array
             if self._debug_rtt:
-                _LOGGER.debug(
-                    "%s(%x): rtt=%.3f rtt_array=%s",
-                    self._name,
-                    id(self),
-                    rtt,
-                    rtt_array,
-                )
+                _LOGGER.debug("%s: rtt=%.3f rtt_array=%s", self._name, rtt, rtt_array)
             if self._updated:
                 if self._debug_rtt:
-                    _LOGGER.debug(
-                        "%s(%x).set_rtt(): updating HA state", self._name, id(self)
-                    )
+                    _LOGGER.debug("%s.set_rtt(): updating HA state", self._name)
                 self.schedule_update_ha_state()
             else:
                 if self._debug_rtt:
-                    _LOGGER.debug(
-                        "%s(%x).set_rtt(): skipping update", self._name, id(self)
-                    )
+                    _LOGGER.debug("%s.set_rtt(): skipping update", self._name)
         else:
             self._update_count += 1

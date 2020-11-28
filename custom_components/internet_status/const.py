@@ -24,6 +24,7 @@ LINK_TYPE_MONITOR_ONLY = "monitor_only"
 PROBE_TYPE_GOOGLE = "google"
 PROBE_TYPE_OPENDNS = "opendns"
 PROBE_TYPE_AKAMAI = "akamai"
+PROBE_TYPE_FILE = "file"
 
 DEF_SCAN_INTERVAL = timedelta(seconds=30)
 DEF_TIMEOUT = 1.0

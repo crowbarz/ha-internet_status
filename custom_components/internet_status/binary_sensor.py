@@ -14,7 +14,8 @@ from homeassistant.components.binary_sensor import (
     DEVICE_CLASS_CONNECTIVITY,
 )
 from homeassistant.helpers.event import track_time_interval
-from homeassistant.util import Throttle
+
+# from homeassistant.util import Throttle
 
 from .const import (
     DOMAIN,
@@ -41,6 +42,7 @@ from .const import (
     PROBE_TYPE_GOOGLE,
     PROBE_TYPE_OPENDNS,
     PROBE_TYPE_AKAMAI,
+    PROBE_TYPE_FILE,
     DATA_DOMAIN_CONFIG,
     DATA_SENSOR_ENTITY,
     DATA_PRIMARY_LINK_ENTITY,
@@ -144,7 +146,7 @@ class LinkStatusBinarySensor(BinarySensorEntity):
         hass,
         entity_id,
         name,
-        link_count,
+        link_id,
         link_type,
         probe_server,
         probe_type,
@@ -157,7 +159,7 @@ class LinkStatusBinarySensor(BinarySensorEntity):
         self._name = name
         self._unique_id = DOMAIN + ":" + name
         self._link_type = link_type
-        self._link_count = link_count
+        self._link_id = link_id
         self._probe_type = probe_type
         self._timeout = timeout
         self._retries = retries
@@ -175,11 +177,10 @@ class LinkStatusBinarySensor(BinarySensorEntity):
 
         probe_host = None
         _LOGGER.debug(
-            "%s(%x).__init__(): entity_id=%s, link_count=%d, link_type=%s, probe_server=%s, probe_type=%s, timeout=%s, retries=%s, reverse_hostname=%s, configured_ip=%s",
+            "%s.__init__(): entity_id=%s, link_count=%d, link_type=%s, probe_server=%s, probe_type=%s, timeout=%s, retries=%s, reverse_hostname=%s, configured_ip=%s",
             name,
-            id(self),
             entity_id,
-            link_count,
+            link_id,
             link_type,
             probe_server,
             probe_type,
@@ -188,21 +189,24 @@ class LinkStatusBinarySensor(BinarySensorEntity):
             self._reverse_hostname,
             self.configured_ip,
         )
-        try:
-            ## Attempt to parse as IP address
-            dns.ipv4.inet_aton(probe_server)
+        if probe_type == PROBE_TYPE_FILE:
             probe_host = probe_server
-        except dns.exception.DNSException:
-            pass
-
-        if probe_host is None:
-            ## Attempt to resolve as DNS name
+        else:
             try:
-                probe_host = str(dns.resolver.query(probe_server, lifetime=timeout)[0])
-            except dns.exception.DNSException as exc:
-                raise RuntimeError(
-                    "could not resolve %s: %s" % (probe_server, exc)
-                ) from exc
+                ## Attempt to parse as IP address
+                dns.ipv4.inet_aton(probe_server)
+                probe_host = probe_server
+            except dns.exception.DNSException:
+                pass
+
+            if probe_host is None:
+                ## Attempt to resolve as DNS name
+                try:
+                    probe_host = str(dns.resolver.query(probe_server, lifetime=timeout)[0])
+                except dns.exception.DNSException as exc:
+                    raise RuntimeError(
+                        "could not resolve %s: %s" % (probe_server, exc)
+                    ) from exc
 
         self._probe_host = probe_host
 
@@ -251,7 +255,16 @@ class LinkStatusBinarySensor(BinarySensorEntity):
         """Return a unique ID."""
         return self._unique_id
 
-    def dns_probe(self, resolver):
+    def file_probe(self): # -> current_ip
+        """File probe. Used for testing."""
+        with open(self._probe_host, "r") as fh:
+            current_ip = fh.read().rstrip()
+            if current_ip == "None":
+                current_ip = None
+
+        return current_ip
+
+    def send_dns_probe(self, resolver):
         """Obtain public IP address using a probe."""
         probe_host = self._probe_host
         probe_type = self._probe_type
@@ -294,6 +307,40 @@ class LinkStatusBinarySensor(BinarySensorEntity):
             )
         return current_ip
 
+    def dns_probe(self): # -> current_ip
+        """Send DNS probes and update rtt sensor."""
+        probe_host = self._probe_host
+        rtt = None
+        rtt_array = []
+        current_ip = None
+        retries = self._retries
+        timeout = self._timeout
+        resolver = dns.resolver.Resolver()
+        resolver.nameservers = [probe_host]
+        resolver.timeout = timeout
+        resolver.lifetime = timeout
+        for count in range(retries):
+            start_time = time.time()
+            probe_ip = self.send_dns_probe(resolver)
+            if probe_ip is not None:
+                current_ip = probe_ip
+                rtt = round((time.time() - start_time) * 1000, 3)
+                rtt_array.append(rtt)
+                if count < retries - 1 and rtt < timeout * 1000:
+                    time.sleep(timeout - rtt / 1000)
+
+        self.update_rtt_sensor(rtt, rtt_array)
+        return current_ip
+
+    def update_rtt_sensor(self, rtt, rtt_array):
+        """Calculate and update rtt sensor if sensors are set up."""
+        rtt = round(sum(rtt_array) / len(rtt_array), 3) if rtt_array else None
+        rtt_entities = self._data.get(DATA_LINK_RTT_ENTITIES)
+        if rtt_entities:
+            rtt_entity = rtt_entities[self._link_id - 1]
+            if rtt_entity:
+                rtt_entity.set_rtt(rtt, rtt_array)
+
     def dns_reverse_lookup_check(self):
         """Reverse DNS lookup current IP and match with reverse hostname."""
         current_ip = self.current_ip
@@ -324,48 +371,26 @@ class LinkStatusBinarySensor(BinarySensorEntity):
         """Update triggered by track_time_interval."""
         self.update()
 
-    @Throttle(UPDATE_THROTTLE)
+    # @Throttle(UPDATE_THROTTLE)
     def update(self):
         """Update the link status sensor."""
         name = self._name
-        probe_host = self._probe_host
-        retries = self._retries
-        reverse_hostname = self._reverse_hostname
-        timeout = self._timeout
-
         if not self._updated:
-            _LOGGER.debug("%s(%x).update(): initial update", name, id(self))
+            _LOGGER.debug("%s.update(): initial update", name)
 
-        resolver = dns.resolver.Resolver()
-        resolver.nameservers = [probe_host]
-        resolver.timeout = timeout
-        resolver.lifetime = timeout
-
-        rtt_array = []
-        current_ip = None
-        link_up = True
-
-        for count in range(retries):
-            start_time = time.time()
-            probe_ip = self.dns_probe(resolver)
-            if probe_ip is not None:
-                current_ip = probe_ip
-                rtt = round((time.time() - start_time) * 1000, 3)
-                rtt_array.append(rtt)
-                if count < retries - 1 and rtt < timeout * 1000:
-                    time.sleep(timeout - rtt / 1000)
-
-        ## Calculate and update rtt sensor if sensors are set up
-        rtt = round(sum(rtt_array) / len(rtt_array), 3) if rtt_array else None
-        rtt_entities = self._data.get(DATA_LINK_RTT_ENTITIES)
-        if rtt_entities:
-            rtt_entity = rtt_entities[self._link_count - 1]
-            if rtt_entity:
-                rtt_entity.set_rtt(rtt, rtt_array)
+        if self._probe_type == PROBE_TYPE_FILE:
+            current_ip = self.file_probe()
+        else:
+            current_ip = self.dns_probe()
 
         ## Check whether IP address has changed
-        if self.current_ip != current_ip:
-            self.current_ip = current_ip
+        status = ""
+        configured_ip = self.configured_ip
+        link_up = True
+        link_failover = self.link_failover
+        link_type_monitor = self._link_type == LINK_TYPE_MONITOR_ONLY
+        reverse_hostname = self._reverse_hostname
+        if current_ip is None or self.current_ip != current_ip:
             if current_ip is not None:
                 ## Link is up
                 self._ip_last_updated = time.time()
@@ -376,103 +401,104 @@ class LinkStatusBinarySensor(BinarySensorEntity):
                         "%s reverse_check=%s, current_ip=%s", name, link_up, current_ip
                     )
                     if link_up:
-                        if self.configured_ip is None:
-                            _LOGGER.info(
-                                "%s up (configured IP set), current_ip=%s",
-                                name,
-                                current_ip,
-                            )
-                            self.configured_ip = current_ip
-                        elif self.configured_ip != current_ip:
-                            _LOGGER.info(
-                                "%s up (IP address changed), current_ip=%s",
-                                name,
-                                current_ip,
-                            )
-                        else:
-                            _LOGGER.info(
-                                "%s up (reverse check ok), current_ip=%s",
-                                name,
-                                current_ip,
-                            )
+                        status += "(reverse check ok)"
                     else:
-                        _LOGGER.info(
-                            "%s down (reverse check failed), current_ip=%s",
-                            name,
-                            current_ip,
-                        )
-                elif self.link_failover:
-                    _LOGGER.info("%s up (failover), current_ip=%s", name, current_ip)
-                else:
-                    _LOGGER.info("%s up, current_ip=%s", name, current_ip)
+                        status += "(reverse check failed)"
+                if link_up and link_type_monitor and configured_ip is None:
+                    configured_ip = current_ip
+                    status += "(configured IP set)"
+                elif link_up and link_failover:
+                    if current_ip == configured_ip:
+                        link_failover = False
+                        status += "(cleared failover)"
+                    else: # don't clear failover for primary and secondary links
+                        link_up = False
+                        status += "(failover)"
+                elif link_up and configured_ip and current_ip != configured_ip:
+                    status += f"(failover: != configured_ip {configured_ip})"
+                    link_up = False
+                    link_failover = True
+                link_status = "up" if link_up else "down"
+                _LOGGER.info(
+                    "%s %s, current_ip=%s %s", name, link_status, current_ip, status
+                )
             else:
                 _LOGGER.info(
                     "%s down, unable to reach server %s after %d retries",
                     name,
-                    probe_host,
-                    retries,
+                    self._probe_host,
+                    self._retries,
                 )
                 link_up = False
-        # else: ## IP address has not changed, link is up
-        if link_up is False:
-            self.link_failover = False
-        if self.link_up == link_up:
+        else:
+            ## IP address has not changed
+            if link_failover: # link still failed over
+                link_up = False
+
+        if (
+            self.link_up == link_up
+            and self.configured_ip == configured_ip
+            and self.current_ip == current_ip
+            and self.link_failover == link_failover
+            and self._updated
+        ):
             return  ## link status unchanged
 
-        ## Link status has changed
+        ## Link parameter(s) have changed
+        _LOGGER.debug("%s: updating link status to link_up=%s->%s, link_failover=%s->%s",
+            name, self.link_up, link_up, self.link_failover, link_failover)
         self.link_up = link_up
-        if self._link_type == LINK_TYPE_MONITOR_ONLY:
-            ## Update configured_ip for monitor-only links where not manually
-            ## configured or where not set via reverse_hostname
-            ## NOTE: does not work if probe_server has active backup route
-            ##       when component is started as it sets wrong configured_ip
-            if link_up and self.configured_ip is None:
-                self.configured_ip = self.current_ip
-        else:
+        self.link_failover = link_failover
+        self.configured_ip = configured_ip
+        self.current_ip = current_ip
+
+        # if self._link_type == LINK_TYPE_MONITOR_ONLY:
+        #     ## Update configured_ip for monitor-only links where not manually
+        #     ## configured or where not set via reverse_hostname
+        #     ## NOTE: does not work if probe_server has active backup route
+        #     ##       when component is started as it sets wrong configured_ip
+        #     if link_up and self.configured_ip is None:
+        #         self.configured_ip = current_ip
+        # else:
+        if not link_type_monitor:
             ## Update parent entity for primary and secondary links
             sensor_entity = self._data.get(DATA_SENSOR_ENTITY)
             if sensor_entity:
                 sensor_entity.set_state()
 
         ## Avoid calling self.schedule_update_ha_state during initial update
-        self._updated = True
+        if self._updated:
+            self.schedule_update_ha_state()
+        else:
+            self._updated = True
 
     def set_failover(self):
         """Set link to failed over state."""
-        if self.link_up or not self.link_failover:
-            self.link_up = False
+        if not self.link_failover:
             self.link_failover = True
             if self._updated:
-                _LOGGER.debug(
-                    "%s(%x).set_failover(): updating HA state", self._name, id(self)
-                )
+                _LOGGER.debug("%s.set_failover(): updating HA state", self._name)
                 self.schedule_update_ha_state()
             else:
-                _LOGGER.debug(
-                    "%s(%x).set_failover(): skipping update", self._name, id(self)
-                )
+                _LOGGER.debug("%s.set_failover(): skipping update", self._name)
 
     def clear_failover(self):
         """Clear link failover state."""
         if self.link_failover:
             self.link_failover = False
             if self._updated:
-                _LOGGER.debug(
-                    "%s(%x).clear_failover(): updating HA state", self._name, id(self)
-                )
+                _LOGGER.debug("%s.clear_failover(): updating HA state", self._name)
                 self.schedule_update_ha_state()
             else:
-                _LOGGER.debug(
-                    "%s(%x).clear_failover(): skipping update", self._name, id(self)
-                )
+                _LOGGER.debug("%s.clear_failover(): skipping update", self._name)
 
-    def set_configured_ip(self):
+    def set_configured_ip(self, force=False):
         """Set this link's configured IP."""
         configured_ip = self.configured_ip
         current_ip = self.current_ip
-        if configured_ip != current_ip:
+        if configured_ip is None or (force and configured_ip != current_ip):
             _LOGGER.info(
-                "%s up (configured IP set), current_ip=%s",
+                "%s configured IP set, current_ip=%s",
                 self._name,
                 current_ip,
             )
@@ -480,13 +506,7 @@ class LinkStatusBinarySensor(BinarySensorEntity):
             if configured_ip is not None:
                 self._ip_last_updated = time.time()
             if self._updated:
-                _LOGGER.debug(
-                    "%s(%x).set_configured_ip(): updating HA state",
-                    self._name,
-                    id(self),
-                )
+                _LOGGER.debug("%s.set_configured_ip(): updating HA state", self._name)
                 self.schedule_update_ha_state()
             else:
-                _LOGGER.debug(
-                    "%s(%x).set_configured_ip(): skipping update", self._name, id(self)
-                )
+                _LOGGER.debug("%s.set_configured_ip(): skipping update", self._name)
