@@ -202,7 +202,9 @@ class LinkStatusBinarySensor(BinarySensorEntity):
             if probe_host is None:
                 ## Attempt to resolve as DNS name
                 try:
-                    probe_host = str(dns.resolver.query(probe_server, lifetime=timeout)[0])
+                    probe_host = str(
+                        dns.resolver.query(probe_server, lifetime=timeout)[0]
+                    )
                 except dns.exception.DNSException as exc:
                     raise RuntimeError(
                         "could not resolve %s: %s" % (probe_server, exc)
@@ -255,7 +257,7 @@ class LinkStatusBinarySensor(BinarySensorEntity):
         """Return a unique ID."""
         return self._unique_id
 
-    def file_probe(self): # -> current_ip
+    def file_probe(self):  # -> current_ip
         """File probe. Used for testing."""
         with open(self._probe_host, "r") as fh:
             current_ip = fh.read().rstrip()
@@ -307,7 +309,7 @@ class LinkStatusBinarySensor(BinarySensorEntity):
             )
         return current_ip
 
-    def dns_probe(self): # -> current_ip
+    def dns_probe(self):  # -> current_ip
         """Send DNS probes and update rtt sensor."""
         probe_host = self._probe_host
         rtt = None
@@ -411,7 +413,7 @@ class LinkStatusBinarySensor(BinarySensorEntity):
                     if current_ip == configured_ip:
                         link_failover = False
                         status += "(cleared failover)"
-                    else: # don't clear failover for primary and secondary links
+                    else:  # don't clear failover for primary and secondary links
                         link_up = False
                         status += "(failover)"
                 elif link_up and configured_ip and current_ip != configured_ip:
@@ -423,16 +425,12 @@ class LinkStatusBinarySensor(BinarySensorEntity):
                     "%s %s, current_ip=%s %s", name, link_status, current_ip, status
                 )
             else:
-                _LOGGER.info(
-                    "%s down, unable to reach server %s after %d retries",
-                    name,
-                    self._probe_host,
-                    self._retries,
-                )
                 link_up = False
+                if current_ip is None and self.current_ip is not None:
+                    _LOGGER.info("%s down", name)
         else:
             ## IP address has not changed
-            if link_failover: # link still failed over
+            if link_failover:  # link still failed over
                 link_up = False
 
         if (
@@ -445,8 +443,14 @@ class LinkStatusBinarySensor(BinarySensorEntity):
             return  ## link status unchanged
 
         ## Link parameter(s) have changed
-        _LOGGER.debug("%s: updating link status to link_up=%s->%s, link_failover=%s->%s",
-            name, self.link_up, link_up, self.link_failover, link_failover)
+        _LOGGER.debug(
+            "%s: updating link status to link_up=%s->%s, link_failover=%s->%s",
+            name,
+            self.link_up,
+            link_up,
+            self.link_failover,
+            link_failover,
+        )
         self.link_up = link_up
         self.link_failover = link_failover
         self.configured_ip = configured_ip

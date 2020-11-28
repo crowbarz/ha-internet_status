@@ -83,7 +83,10 @@ class InternetStatusSensor(Entity):
             self.entity_id = entity_id
         self._updated = False
         _LOGGER.debug(
-            "%s.__init__(): unique_id=%s, entity_id=%s", name, self._unique_id, entity_id,
+            "%s.__init__(): unique_id=%s, entity_id=%s",
+            name,
+            self._unique_id,
+            entity_id,
         )
 
     @property
