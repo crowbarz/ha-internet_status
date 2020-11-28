@@ -343,9 +343,8 @@ class LinkStatusBinarySensor(BinarySensorEntity):
             if rtt_entity:
                 rtt_entity.set_rtt(rtt, rtt_array)
 
-    def dns_reverse_lookup_check(self):
+    def dns_reverse_lookup_check(self, current_ip):
         """Reverse DNS lookup current IP and match with reverse hostname."""
-        current_ip = self.current_ip
         reverse_hostname = self._reverse_hostname
         timeout = self._timeout
         rquery = []
@@ -398,7 +397,7 @@ class LinkStatusBinarySensor(BinarySensorEntity):
                 self._ip_last_updated = time.time()
                 if reverse_hostname:
                     ## Perform reverse DNS matching
-                    link_up = self.dns_reverse_lookup_check()
+                    link_up = self.dns_reverse_lookup_check(current_ip)
                     _LOGGER.debug(
                         "%s reverse_check=%s, current_ip=%s", name, link_up, current_ip
                     )
