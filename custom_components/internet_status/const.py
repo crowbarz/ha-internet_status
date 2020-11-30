@@ -3,7 +3,7 @@
 from datetime import timedelta
 
 DOMAIN = "internet_status"
-VERSION = "0.7.1"
+VERSION = "0.7.2"
 
 CONF_LINKS = "links"
 CONF_LINK_TYPE = "link_type"

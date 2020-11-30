@@ -346,12 +346,12 @@ class LinkStatusBinarySensor(BinarySensorEntity):
     def dns_reverse_lookup_check(self, current_ip):
         """Reverse DNS lookup current IP and match with reverse hostname."""
         reverse_hostname = self._reverse_hostname
-        timeout = self._timeout
+        # timeout = self._timeout
         rquery = []
         ptr = ""
         try:
             rquery = dns.resolver.query(
-                dns.reversename.from_address(current_ip), "PTR", lifetime=timeout
+                dns.reversename.from_address(current_ip), "PTR", # lifetime=timeout
             )
             ptr = str(rquery[0])
             if reverse_hostname in ptr:
