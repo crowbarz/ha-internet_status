@@ -1,8 +1,9 @@
 {
   "domain": "internet_status",
   "name": "Internet Status",
+  "version": "0.7.2",
   "documentation": "",
   "dependencies": [],
   "codeowners": [],
-  "requirements": ["dnspython==1.16.0"]
+  "requirements": [ "dnspython==1.16.0" ]
 }
