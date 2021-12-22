@@ -5,5 +5,5 @@
   "documentation": "",
   "dependencies": [],
   "codeowners": [],
-  "requirements": [ "dnspython==1.16.0" ]
+  "requirements": [ "dnspython==2.1.0" ]
 }
