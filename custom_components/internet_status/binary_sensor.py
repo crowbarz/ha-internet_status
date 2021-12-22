@@ -233,7 +233,7 @@ class LinkStatusBinarySensor(BinarySensorEntity):
         return DEVICE_CLASS_CONNECTIVITY
 
     @property
-    def device_state_attributes(self):
+    def extra_state_attributes(self):
         """Return the state attributes."""
         ip_last_updated = self._ip_last_updated
         attrs = {
@@ -351,7 +351,8 @@ class LinkStatusBinarySensor(BinarySensorEntity):
         ptr = ""
         try:
             rquery = dns.resolver.query(
-                dns.reversename.from_address(current_ip), "PTR", # lifetime=timeout
+                dns.reversename.from_address(current_ip),
+                "PTR",  # lifetime=timeout
             )
             ptr = str(rquery[0])
             if reverse_hostname in ptr:

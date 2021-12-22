@@ -105,7 +105,7 @@ class InternetStatusSensor(Entity):
         return self._link_status
 
     @property
-    def device_state_attributes(self):
+    def extra_state_attributes(self):
         """Return the state attributes."""
         attrs = {}
         return attrs
@@ -255,7 +255,7 @@ class LinkRttSensor(Entity):
         return "ms"
 
     @property
-    def device_state_attributes(self):
+    def extra_state_attributes(self):
         """Return the state attributes."""
         attrs = {ATTR_RTT: self._rtt_array}
         return attrs
