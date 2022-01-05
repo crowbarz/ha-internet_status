@@ -58,7 +58,7 @@ PARALLEL_UPDATES = 0
 LINK_STATUS_ICON = "mdi:wan"
 
 
-def setup_platform(hass, config, add_entities, discovery_info=None):
+def setup_platform(hass, _config, add_entities, discovery_info=None):
     """Set up the link status sensors."""
 
     if discovery_info is None:
@@ -177,7 +177,9 @@ class LinkStatusBinarySensor(BinarySensorEntity):
 
         probe_host = None
         _LOGGER.debug(
-            "%s.__init__(): entity_id=%s, link_count=%d, link_type=%s, probe_server=%s, probe_type=%s, timeout=%s, retries=%s, reverse_hostname=%s, configured_ip=%s",
+            "%s.__init__(): entity_id=%s, link_count=%d, link_type=%s, "
+            "probe_server=%s, probe_type=%s, timeout=%s, retries=%s, "
+            "reverse_hostname=%s, configured_ip=%s",
             name,
             entity_id,
             link_id,
@@ -207,7 +209,7 @@ class LinkStatusBinarySensor(BinarySensorEntity):
                     )
                 except dns.exception.DNSException as exc:
                     raise RuntimeError(
-                        "could not resolve %s: %s" % (probe_server, exc)
+                        f"could not resolve {probe_server}: {str(exc)}"
                     ) from exc
 
         self._probe_host = probe_host
@@ -369,7 +371,7 @@ class LinkStatusBinarySensor(BinarySensorEntity):
             _LOGGER.warning("reverse lookup for %s failed: %s", current_ip, str(exc))
             return None
 
-    def update_entity_states(self, now):
+    def update_entity_states(self, _now):
         """Update triggered by track_time_interval."""
         self.update()
 
