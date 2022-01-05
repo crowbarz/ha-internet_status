@@ -173,6 +173,8 @@ class LinkStatusBinarySensor(BinarySensorEntity):
         self.current_ip = None
         self.link_up = None
         self.link_failover = False
+        ## Ignore reverse hostname check (always succeeds) if none specified
+        self.reverse_check_ok = None if self._reverse_hostname else True
         self._ip_last_updated = None
 
         probe_host = None
@@ -394,42 +396,47 @@ class LinkStatusBinarySensor(BinarySensorEntity):
         link_failover = self.link_failover
         link_type_monitor = self._link_type == LINK_TYPE_MONITOR_ONLY
         reverse_hostname = self._reverse_hostname
-        if current_ip is None or self.current_ip != current_ip:
-            if current_ip is not None:
-                ## Link is up
-                self._ip_last_updated = time.time()
-                if reverse_hostname:
-                    ## Perform reverse DNS matching
-                    link_up = self.dns_reverse_lookup_check(current_ip)
-                    _LOGGER.debug(
-                        "%s reverse_check=%s, current_ip=%s", name, link_up, current_ip
-                    )
-                    if link_up:
-                        status += "(reverse check ok)"
-                    else:
-                        status += "(reverse check failed)"
-                if link_up and link_type_monitor and configured_ip is None:
-                    configured_ip = current_ip
-                    status += "(configured IP set)"
-                elif link_up and link_failover:
-                    if current_ip == configured_ip:
-                        link_failover = False
-                        status += "(cleared failover)"
-                    else:  # don't clear failover for primary and secondary links
-                        link_up = False
-                        status += "(failover)"
-                elif link_up and configured_ip and current_ip != configured_ip:
-                    status += f"(failover: != configured_ip {configured_ip})"
-                    link_up = False
-                    link_failover = True
-                link_status = "up" if link_up else "down"
-                _LOGGER.info(
-                    "%s %s, current_ip=%s %s", name, link_status, current_ip, status
+        reverse_check_ok = self.reverse_check_ok
+        if current_ip is None:
+            link_up = False
+            if self.current_ip is not None:
+                _LOGGER.info("%s down (could not resolve IP)", name)
+        elif self.current_ip != current_ip or not reverse_check_ok:
+            ## Link has different IP or reverse check previously failed, check again
+            self._ip_last_updated = time.time()
+            if reverse_hostname:
+                ## Perform reverse DNS matching
+                reverse_check_ok = self.dns_reverse_lookup_check(current_ip)
+                _LOGGER.debug(
+                    "%s reverse_check=%s, current_ip=%s",
+                    name,
+                    reverse_check_ok,
+                    current_ip,
                 )
-            else:
+                if reverse_check_ok:
+                    status += "(reverse check ok)"
+                else:
+                    status += "(reverse check failed)"
+                self.reverse_check_ok = reverse_check_ok
+                link_up = reverse_check_ok
+            if link_up and link_type_monitor and configured_ip is None:
+                configured_ip = current_ip
+                status += "(configured IP set)"
+            elif link_up and link_failover:
+                if current_ip == configured_ip:
+                    link_failover = False
+                    status += "(cleared failover)"
+                else:  # don't clear failover for primary and secondary links
+                    link_up = False
+                    status += "(failover)"
+            elif link_up and configured_ip and current_ip != configured_ip:
+                status += f"(failover: != configured_ip {configured_ip})"
                 link_up = False
-                if current_ip is None and self.current_ip is not None:
-                    _LOGGER.info("%s down", name)
+                link_failover = True
+            link_status = "up" if link_up else "down"
+            _LOGGER.info(
+                "%s %s, current_ip=%s %s", name, link_status, current_ip, status
+            )
         else:
             ## IP address has not changed
             if link_failover:  # link still failed over
