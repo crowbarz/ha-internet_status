@@ -91,7 +91,7 @@ CONFIG_SCHEMA = vol.Schema(
 
 def setup(hass, config):
     """Set up the internet link status component."""
-    _LOGGER.info("setup component: config=%s", config[DOMAIN])
+    _LOGGER.debug("setup component: config=%s", config[DOMAIN])
     if DOMAIN not in hass.data:
         hass.data[DOMAIN] = {
             DATA_DOMAIN_CONFIG: config[DOMAIN],
