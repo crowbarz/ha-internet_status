@@ -10,6 +10,8 @@ The component operates independently of the network's internet gateway, but does
 
 ## Configuration
 
+> **WARNING:** this document needs to be updated to reflect post 0.6 syntax. Only the [example configuration](#example-configuration) has been updated for 0.7.2.
+
 One link must be designated as the primary link, and currently one link must be designated the secondary link. Additional links (such as VPN links) may be specified, however the status of these links will not be used to determine the overall internet connectivity status.
 
 Configure this component via a top-level `internet_status` section in `configuration.yaml`:
@@ -81,31 +83,31 @@ The example configuration below requires the following routes to be in place on 
 - **216.239.38.10** routed via the `vpn` link
 
 ```yaml
-# Example configuration.yaml entry:
+## Internet status configuration (for 0.7.2)
 internet_status:
   scan_interval: 30
   links:
-    isp_primary:
-      name: Primary ISP
+    - name: Primary ISP
+      entity_id: binary_sensor.isp_primary_status
       link_type: primary
       probe_server: 216.239.34.10
       probe_type: google
-      reverse_hostname: isp1name
       rtt_sensor:
-        name: Override RTT sensor name
-    isp_secondary:
-      name: Secondary ISP
+        entity_id: sensor.isp_primary_rtt
+    - name: Secondary ISP
+      entity_id: binary_sensor.isp_secondary_status
       link_type: secondary
       probe_server: 216.239.36.10
       probe_type: google
-      reverse_hostname: isp2name
-      rtt_sensor: {}
-    vpn:
-      name: VPN
+      rtt_sensor:
+        entity_id: sensor.isp_secondary_rtt
+    - name: VPN
+      entity_id: binary_sensor.vpn_status
       probe_server: 216.239.38.10
       probe_type: google
-      reverse_hostname: vpnhostname
-      # no rtt_sensor enabled
+      reverse_hostname: "cable.virginm.net"
+      rtt_sensor:
+        entity_id: sensor.vpn_rtt
 ```
 
 ## Supported IP address query services
