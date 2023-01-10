@@ -27,7 +27,7 @@ INTERNET_STATUS_ICON = "mdi:wan"
 LINK_RTT_ICON = "mdi:lan-connect"
 
 
-def setup_platform(hass, config, add_entities, discovery_info=None):
+def setup_platform(hass, _config, add_entities, discovery_info=None):
     """Set up the internet status sensor."""
 
     if discovery_info is None:

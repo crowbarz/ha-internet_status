@@ -263,8 +263,10 @@ class LinkStatusBinarySensor(BinarySensorEntity):
 
     def file_probe(self):  # -> current_ip
         """File probe. Used for testing."""
-        with open(self._probe_host, "r") as fh:
-            current_ip = fh.read().rstrip()
+        with open(
+            self._probe_host, "r", encoding="utf8", errors="surrogateescape"
+        ) as fileh:
+            current_ip = fileh.read().rstrip()
             if current_ip == "None":
                 current_ip = None
 

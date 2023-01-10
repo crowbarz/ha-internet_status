@@ -1,8 +1,8 @@
 """Monitor internet link status via DNS queries."""
 
 import logging
-import voluptuous as vol
 from threading import Event
+import voluptuous as vol
 
 import homeassistant.helpers.config_validation as cv
 from homeassistant.const import (
