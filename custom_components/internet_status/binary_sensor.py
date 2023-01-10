@@ -11,7 +11,7 @@ import dns.exception
 from homeassistant.const import CONF_NAME, CONF_ENTITY_ID, CONF_SCAN_INTERVAL
 from homeassistant.components.binary_sensor import (
     BinarySensorEntity,
-    DEVICE_CLASS_CONNECTIVITY,
+    BinarySensorDeviceClass,
 )
 from homeassistant.helpers.event import track_time_interval
 
@@ -141,6 +141,10 @@ def setup_platform(hass, _config, add_entities, discovery_info=None):
 class LinkStatusBinarySensor(BinarySensorEntity):
     """Sensor to check the status of an internet link."""
 
+    _attr_icon = LINK_STATUS_ICON
+    _attr_device_class = BinarySensorDeviceClass.CONNECTIVITY
+    _attr_should_poll = False
+
     def __init__(
         self,
         hass,
@@ -156,8 +160,8 @@ class LinkStatusBinarySensor(BinarySensorEntity):
     ):
         """Initialise the link check sensor."""
         self._data = hass.data[DOMAIN]
-        self._name = name
-        self._unique_id = DOMAIN + ":" + name
+        self._attr_name = name
+        self._attr_unique_id = DOMAIN + ":" + name
         self._link_type = link_type
         self._link_id = link_id
         self._probe_type = probe_type
@@ -217,24 +221,9 @@ class LinkStatusBinarySensor(BinarySensorEntity):
         self._probe_host = probe_host
 
     @property
-    def name(self):
-        """Return the name of the sensor."""
-        return self._name
-
-    @property
-    def icon(self):
-        """Icon to use in the frontend, if any."""
-        return LINK_STATUS_ICON
-
-    @property
     def is_on(self):
         """Return true if the binary sensor is on."""
         return self.link_up and not self.link_failover
-
-    @property
-    def device_class(self):
-        """Return the class of this device, from component DEVICE_CLASSES."""
-        return DEVICE_CLASS_CONNECTIVITY
 
     @property
     def extra_state_attributes(self):
@@ -250,16 +239,6 @@ class LinkStatusBinarySensor(BinarySensorEntity):
                 ip_last_updated
             ).replace(microsecond=0)
         return attrs
-
-    @property
-    def should_poll(self):
-        """Polling not required as we set up our own poller."""
-        return False
-
-    @property
-    def unique_id(self):
-        """Return a unique ID."""
-        return self._unique_id
 
     def file_probe(self):  # -> current_ip
         """File probe. Used for testing."""
@@ -382,7 +361,7 @@ class LinkStatusBinarySensor(BinarySensorEntity):
     # @Throttle(UPDATE_THROTTLE)
     def update(self):
         """Update the link status sensor."""
-        name = self._name
+        name = self._attr_name
         if not self._updated:
             _LOGGER.debug("%s.update(): initial update", name)
 
@@ -492,20 +471,20 @@ class LinkStatusBinarySensor(BinarySensorEntity):
         if not self.link_failover:
             self.link_failover = True
             if self._updated:
-                _LOGGER.debug("%s.set_failover(): updating HA state", self._name)
+                _LOGGER.debug("%s.set_failover(): updating HA state", self._attr_name)
                 self.schedule_update_ha_state()
             else:
-                _LOGGER.debug("%s.set_failover(): skipping update", self._name)
+                _LOGGER.debug("%s.set_failover(): skipping update", self._attr_name)
 
     def clear_failover(self):
         """Clear link failover state."""
         if self.link_failover:
             self.link_failover = False
             if self._updated:
-                _LOGGER.debug("%s.clear_failover(): updating HA state", self._name)
+                _LOGGER.debug("%s.clear_failover(): updating HA state", self._attr_name)
                 self.schedule_update_ha_state()
             else:
-                _LOGGER.debug("%s.clear_failover(): skipping update", self._name)
+                _LOGGER.debug("%s.clear_failover(): skipping update", self._attr_name)
 
     def set_configured_ip(self, force=False):
         """Set this link's configured IP."""
@@ -514,14 +493,18 @@ class LinkStatusBinarySensor(BinarySensorEntity):
         if configured_ip is None or (force and configured_ip != current_ip):
             _LOGGER.info(
                 "%s configured IP set, current_ip=%s",
-                self._name,
+                self._attr_name,
                 current_ip,
             )
             self.configured_ip = current_ip
             if configured_ip is not None:
                 self._ip_last_updated = time.time()
             if self._updated:
-                _LOGGER.debug("%s.set_configured_ip(): updating HA state", self._name)
+                _LOGGER.debug(
+                    "%s.set_configured_ip(): updating HA state", self._attr_name
+                )
                 self.schedule_update_ha_state()
             else:
-                _LOGGER.debug("%s.set_configured_ip(): skipping update", self._name)
+                _LOGGER.debug(
+                    "%s.set_configured_ip(): skipping update", self._attr_name
+                )

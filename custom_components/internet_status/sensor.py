@@ -3,7 +3,12 @@
 import logging
 
 from homeassistant.const import CONF_NAME, CONF_ENTITY_ID
-from homeassistant.helpers.entity import Entity
+
+from homeassistant.components.sensor import (
+    # SensorDeviceClass,
+    SensorEntity,
+    SensorStateClass,
+)
 
 from .const import (
     DOMAIN,
@@ -69,66 +74,32 @@ def setup_platform(hass, _config, add_entities, discovery_info=None):
     add_entities(entities, True)
 
 
-class InternetStatusSensor(Entity):
+class InternetStatusSensor(SensorEntity):
     """Sensor that determines the status of internet access."""
+
+    _attr_icon = INTERNET_STATUS_ICON
+    _attr_should_poll = False
+    _attr_extra_state_attributes = {}
 
     def __init__(self, hass, entity_id, name):
         """Initialise the internet status sensor."""
         self._data = hass.data[DOMAIN]
-        self._name = name
-        self._unique_id = DOMAIN + ":" + name
-        self._link_status = None
+        self._attr_name = name
+        self._attr_unique_id = DOMAIN + ":" + name
+        self._attr_native_value = None
 
         if entity_id:
             self.entity_id = entity_id
         self._updated = False
         _LOGGER.debug(
-            "%s.__init__(): unique_id=%s, entity_id=%s",
+            "%s.__init__(): entity_id=%s",
             name,
-            self._unique_id,
             entity_id,
         )
 
-    @property
-    def name(self):
-        """Return the name of the sensor."""
-        return self._name
-
-    @property
-    def icon(self):
-        """Icon to use in the frontend, if any."""
-        return INTERNET_STATUS_ICON
-
-    @property
-    def state(self):
-        """Return the state of the sensor."""
-        return self._link_status
-
-    @property
-    def extra_state_attributes(self):
-        """Return the state attributes."""
-        attrs = {}
-        return attrs
-
-    @property
-    def should_poll(self):
-        """Polling not required as link sensors will trigger update."""
-        return False
-
-    @property
-    def unique_id(self):
-        """Return a unique ID."""
-        # _LOGGER.debug(
-        #     "%s.unique_id(): unique_id=%s, entity_id=%s",
-        #     self._name,
-        #     self._unique_id,
-        #     self.entity_id,
-        # )
-        return self._unique_id
-
     def update(self):
         """Initial update of the sensor."""
-        _LOGGER.debug("%s.update(): initial update", self._name)
+        _LOGGER.debug("%s.update(): initial update", self._attr_name)
         self.set_state()
         self._updated = True
         return
@@ -197,26 +168,31 @@ class InternetStatusSensor(Entity):
                 secondary_entity.set_configured_ip()
 
         ## Only trigger update if link status has changed
-        if self._link_status != link_status:
-            self._link_status = link_status
-            _LOGGER.info("%s: state=%s", self._name, link_status)
+        if self._attr_native_value != link_status:
+            self._attr_native_value = link_status
+            _LOGGER.info("%s: state=%s", self._attr_name, link_status)
             if self._updated:
-                _LOGGER.debug("%s.set_state(): updating HA state", self._name)
+                _LOGGER.debug("%s.set_state(): updating HA state", self._attr_name)
                 self.schedule_update_ha_state()
             else:
-                _LOGGER.debug("%s.set_state(): skipping update", self._name)
+                _LOGGER.debug("%s.set_state(): skipping update", self._attr_name)
 
 
-class LinkRttSensor(Entity):
+class LinkRttSensor(SensorEntity):
     """Sensor that tracks rtt to probe server."""
+
+    _attr_icon = LINK_RTT_ICON
+    _attr_native_unit_of_measurement = "ms"
+    _attr_should_poll = False
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    ## TODO: no appropriate device class for rtt value
+    # _attr_device_class = SensorDeviceClass.DATA_RATE
 
     def __init__(self, hass, entity_id, name, link_count, link_rtt_config):
         """Initialise the internet status sensor."""
         self._data = hass.data[DOMAIN]
-        self._unique_id = DOMAIN + ":" + name
-        self._name = name
-        self._rtt = None
-        self._rtt_array = None
+        self._attr_unique_id = DOMAIN + ":" + name
+        self._attr_name = name
         self._update_count = None
         self._update_ratio = link_rtt_config[CONF_UPDATE_RATIO]
         self._debug_rtt = link_rtt_config[CONF_DEBUG_RTT]
@@ -226,7 +202,7 @@ class LinkRttSensor(Entity):
         self._updated = False
         if self._debug_rtt:
             _LOGGER.debug(
-                "%s: entity_id=%s, link_count=%d, update_ratio=%d, rtt_config=%s",
+                "%s.__init__(): entity_id=%s, link_count=%d, update_ratio=%d, rtt_config=%s",
                 name,
                 entity_id,
                 link_count,
@@ -234,52 +210,10 @@ class LinkRttSensor(Entity):
                 link_rtt_config,
             )
 
-    @property
-    def name(self):
-        """Return the name of the sensor."""
-        return self._name
-
-    @property
-    def icon(self):
-        """Icon to use in the frontend, if any."""
-        return LINK_RTT_ICON
-
-    @property
-    def state(self):
-        """Return the state of the sensor."""
-        return self._rtt
-
-    @property
-    def unit_of_measurement(self):
-        """Return the state of the sensor."""
-        return "ms"
-
-    @property
-    def extra_state_attributes(self):
-        """Return the state attributes."""
-        attrs = {ATTR_RTT: self._rtt_array}
-        return attrs
-
-    @property
-    def should_poll(self):
-        """Polling not required as link binary_sensors will update sensor."""
-        return False
-
-    @property
-    def unique_id(self):
-        """Return a unique ID."""
-        # _LOGGER.debug(
-        #     "%s.unique_id(): unique_id=%s, entity_id=%s",
-        #     self._name,
-        #     self._unique_id,
-        #     self.entity_id,
-        # )
-        return self._unique_id
-
     def update(self):
         """Initial update of the sensor."""
         if self._debug_rtt:
-            _LOGGER.debug("%s.update(): initial update", self._name)
+            _LOGGER.debug("%s.update(): initial update", self._attr_name)
         self._updated = True
         return
 
@@ -287,16 +221,18 @@ class LinkRttSensor(Entity):
         """Update rtt data."""
         if self._update_count is None or self._update_count >= self._update_ratio:
             self._update_count = 1
-            self._rtt = rtt
-            self._rtt_array = rtt_array
+            self._attr_native_value = rtt
+            self._attr_extra_state_attributes = {ATTR_RTT: rtt_array}
             if self._debug_rtt:
-                _LOGGER.debug("%s: rtt=%.3f rtt_array=%s", self._name, rtt, rtt_array)
+                _LOGGER.debug(
+                    "%s: rtt=%.3f rtt_array=%s", self._attr_name, rtt, rtt_array
+                )
             if self._updated:
                 if self._debug_rtt:
-                    _LOGGER.debug("%s.set_rtt(): updating HA state", self._name)
+                    _LOGGER.debug("%s.set_rtt(): updating HA state", self._attr_name)
                 self.schedule_update_ha_state()
             else:
                 if self._debug_rtt:
-                    _LOGGER.debug("%s.set_rtt(): skipping update", self._name)
+                    _LOGGER.debug("%s.set_rtt(): skipping update", self._attr_name)
         else:
             self._update_count += 1
