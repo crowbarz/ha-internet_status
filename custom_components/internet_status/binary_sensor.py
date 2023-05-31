@@ -14,6 +14,7 @@ from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
 )
 from homeassistant.helpers.event import track_time_interval
+from homeassistant.util import slugify
 
 # from homeassistant.util import Throttle
 
@@ -161,7 +162,7 @@ class LinkStatusBinarySensor(BinarySensorEntity):
         """Initialise the link check sensor."""
         self._data = hass.data[DOMAIN]
         self._attr_name = name
-        self._attr_unique_id = DOMAIN + ":" + name
+        self._attr_unique_id = DOMAIN + ":" + slugify(name)
         self._link_type = link_type
         self._link_id = link_id
         self._probe_type = probe_type

@@ -3,6 +3,7 @@
 import logging
 
 from homeassistant.const import CONF_NAME, CONF_ENTITY_ID
+from homeassistant.util import slugify
 
 from homeassistant.components.sensor import (
     # SensorDeviceClass,
@@ -85,7 +86,7 @@ class InternetStatusSensor(SensorEntity):
         """Initialise the internet status sensor."""
         self._data = hass.data[DOMAIN]
         self._attr_name = name
-        self._attr_unique_id = DOMAIN + ":" + name
+        self._attr_unique_id = DOMAIN + ":" + slugify(name)
         self._attr_native_value = None
 
         if entity_id:
@@ -191,7 +192,7 @@ class LinkRttSensor(SensorEntity):
     def __init__(self, hass, entity_id, name, link_count, link_rtt_config):
         """Initialise the internet status sensor."""
         self._data = hass.data[DOMAIN]
-        self._attr_unique_id = DOMAIN + ":" + name
+        self._attr_unique_id = DOMAIN + ":" + slugify(name)
         self._attr_name = name
         self._update_count = None
         self._update_ratio = link_rtt_config[CONF_UPDATE_RATIO]
