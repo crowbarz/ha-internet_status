@@ -2,8 +2,11 @@
   "domain": "internet_status",
   "name": "Internet Status",
   "version": "0.8",
-  "documentation": "",
+  "documentation": "https://github.com/crowbarz/ha-internet_status",
+  "integration_type": "hub",
+  "requirements": [ "dnspython==2.1.0" ],
   "dependencies": [],
   "codeowners": [],
-  "requirements": [ "dnspython==2.1.0" ]
+  "iot_class": "local_polling",
+  "loggers": ["internet_status"]
 }
