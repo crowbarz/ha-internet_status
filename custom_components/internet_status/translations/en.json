@@ -1,0 +1,36 @@
+{
+  "config": {
+    "abort": {
+      "already_configured": "Device is already configured"
+    },
+    "error": {
+      "unknown": "Unexpected exception: {exception}"
+    },
+    "step": {
+      "user": {
+        "data": {
+          "name": "Name",
+          "scan_interval": "Scan Interval",
+          "timeout": "Timeout",
+          "retries": "Retries",
+          "links": "Link Configuration"
+        }
+      }
+    }
+  },
+  "options": {
+    "error": {
+      "unknown": "Unexpected exception: {exception}"
+    },
+    "step": {
+      "init": {
+        "data": {
+          "scan_interval": "Scan Interval",
+          "timeout": "Timeout",
+          "retries": "Retries",
+          "links": "Link Configuration"
+        }
+      }
+    }
+  }
+}

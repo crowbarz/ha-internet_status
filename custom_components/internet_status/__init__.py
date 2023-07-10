@@ -1,104 +1,39 @@
 """Monitor internet link status via DNS queries."""
+from __future__ import annotations
 
-import logging
-from threading import Event
-import voluptuous as vol
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import Platform
+from homeassistant.core import HomeAssistant
 
-import homeassistant.helpers.config_validation as cv
-from homeassistant.const import (
-    CONF_NAME,
-    CONF_ENTITY_ID,
-    CONF_SCAN_INTERVAL,
-)
-from homeassistant.helpers import discovery
+from .const import DOMAIN
+from .coordinator import InternetStatusCoordinator
 
-from .const import (
-    DOMAIN,
-    CONF_LINKS,
-    CONF_LINK_TYPE,
-    CONF_PROBE_SERVER,
-    CONF_PROBE_TYPE,
-    CONF_CONFIGURED_IP,
-    CONF_TIMEOUT,
-    CONF_RETRIES,
-    CONF_REVERSE_HOSTNAME,
-    CONF_RTT_SENSOR,
-    CONF_UPDATE_RATIO,
-    CONF_DEBUG_PROBE,
-    CONF_DEBUG_RTT,
-    DEF_SCAN_INTERVAL,
-    DEF_TIMEOUT,
-    DEF_RETRIES,
-    DEF_UPDATE_RATIO,
-    DEF_LINK_TYPE,
-    DEF_NAME,
-    DEF_DEBUG_PROBE,
-    DEF_DEBUG_RTT,
-    DATA_DOMAIN_CONFIG,
-)
-
-_LOGGER = logging.getLogger(__name__)
-
-RTT_SCHEMA = vol.Schema(
-    {
-        vol.Optional(CONF_NAME): cv.string,
-        vol.Optional(CONF_ENTITY_ID): vol.All(cv.entity_domain("sensor"), cv.entity_id),
-        vol.Optional(CONF_UPDATE_RATIO, default=DEF_UPDATE_RATIO): cv.positive_int,
-        vol.Optional(CONF_DEBUG_RTT, default=DEF_DEBUG_RTT): cv.boolean,
-    }
-)
-
-LINK_SCHEMA = vol.Schema(
-    {
-        vol.Optional(CONF_NAME): cv.string,
-        vol.Optional(CONF_LINK_TYPE, default=DEF_LINK_TYPE): cv.string,
-        vol.Optional(CONF_ENTITY_ID): vol.All(
-            cv.entity_domain("binary_sensor"), cv.entity_id
-        ),
-        vol.Optional(CONF_PROBE_SERVER): cv.string,
-        vol.Optional(CONF_PROBE_TYPE): cv.string,
-        vol.Optional(CONF_SCAN_INTERVAL): cv.positive_time_period,
-        vol.Optional(CONF_TIMEOUT): cv.socket_timeout,
-        vol.Optional(CONF_RETRIES): cv.positive_int,
-        vol.Optional(CONF_CONFIGURED_IP): cv.string,
-        vol.Optional(CONF_REVERSE_HOSTNAME): cv.string,
-        vol.Optional(CONF_RTT_SENSOR): RTT_SCHEMA,
-        vol.Optional(CONF_DEBUG_PROBE, default=DEF_DEBUG_PROBE): cv.boolean,
-    }
-)
-
-CONFIG_SCHEMA = vol.Schema(
-    {
-        DOMAIN: vol.Schema(
-            {
-                vol.Optional(CONF_NAME, default=DEF_NAME): cv.string,
-                vol.Optional(CONF_ENTITY_ID): vol.All(
-                    cv.entity_domain("sensor"), cv.entity_id
-                ),
-                vol.Optional(
-                    CONF_SCAN_INTERVAL, default=DEF_SCAN_INTERVAL
-                ): cv.positive_time_period,
-                vol.Optional(CONF_TIMEOUT, default=DEF_TIMEOUT): cv.socket_timeout,
-                vol.Optional(CONF_RETRIES, default=DEF_RETRIES): cv.positive_int,
-                vol.Required(CONF_LINKS): vol.All(cv.ensure_list, [LINK_SCHEMA]),
-                # vol.Required(CONF_LINKS): cv.schema_with_slug_keys(LINK_SCHEMA),
-            }
-        ),
-    },
-    extra=vol.ALLOW_EXTRA,
-)
+PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.BINARY_SENSOR]
 
 
-def setup(hass, config):
-    """Set up the internet link status component."""
-    _LOGGER.debug("setup component: config=%s", config[DOMAIN])
-    if DOMAIN not in hass.data:
-        hass.data[DOMAIN] = {
-            DATA_DOMAIN_CONFIG: config[DOMAIN],
-        }
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Set up internet_status from a config entry."""
 
-    ## Setup platforms. Load link sensors first
-    discovery.load_platform(hass, "binary_sensor", DOMAIN, {}, config)
-    discovery.load_platform(hass, "sensor", DOMAIN, {}, config)
+    hass.data.setdefault(DOMAIN, {})
+
+    coordinator = InternetStatusCoordinator(hass, entry, entry.options)
+    hass.data[DOMAIN][entry.entry_id] = coordinator
+
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
+    entry.async_on_unload(entry.add_update_listener(_async_update_listener))
 
     return True
+
+
+async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Handle options update."""
+    await hass.config_entries.async_reload(entry.entry_id)
+
+
+async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Unload a config entry."""
+    if unload_ok := await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
+        hass.data[DOMAIN].pop(entry.entry_id)
+
+    return unload_ok

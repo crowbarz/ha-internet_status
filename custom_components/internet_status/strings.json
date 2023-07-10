@@ -1,0 +1,36 @@
+{
+  "config": {
+    "abort": {
+      "already_configured": "[%key:common::config_flow::abort::already_configured_device%]"
+    },
+    "error": {
+      "unknown": "[%key:common::config_flow::error::unknown%]: {exception}"
+    },
+    "step": {
+      "user": {
+        "data": {
+          "name": "Name",
+          "scan_interval": "Scan Interval",
+          "timeout": "Timeout",
+          "retries": "Retries",
+          "links": "Link Configuration"
+        }
+      }
+    }
+  },
+  "options": {
+    "error": {
+      "unknown": "[%key:common::config_flow::error::unknown%]: {exception}"
+    },
+    "step": {
+      "init": {
+        "data": {
+          "scan_interval": "Scan Interval",
+          "timeout": "Timeout",
+          "retries": "Retries",
+          "links": "Link Configuration"
+        }
+      }
+    }
+  }
+}
