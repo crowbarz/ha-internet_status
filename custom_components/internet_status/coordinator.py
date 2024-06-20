@@ -10,6 +10,8 @@ import logging
 import aiofiles
 import dns.asyncresolver
 import dns.resolver
+import dns.rdata
+import dns.rdataclass
 import dns.rdatatype
 import dns.inet
 import dns.ipv4
@@ -41,6 +43,17 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+
+## https://github.com/rthalley/dnspython/issues/1083
+def load_all_types():
+    """Workaround for imports triggering blocking call in the event loop."""
+    for rdtype in dns.rdatatype.RdataType:
+        if not dns.rdatatype.is_metatype(rdtype) or rdtype == dns.rdatatype.OPT:
+            dns.rdata.get_rdata_class(dns.rdataclass.IN, rdtype)
+
+
+load_all_types()
 
 
 class InternetStatusCoordinator(DataUpdateCoordinator):
