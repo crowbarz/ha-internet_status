@@ -32,5 +32,10 @@
         }
       }
     }
+  },
+  "exceptions": {
+    "set_configured_ip_invalid_link_type": {
+      "message": "cannot set configured IP for link type {link_type}"
+    }
   }
 }

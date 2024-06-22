@@ -1,0 +1,8 @@
+set_configured_ip:
+  description: >
+    Update the configured IP for link. Used on links configured with dynamic IP
+    addresses that can be changed periodically
+  target:
+    entity:
+      integration: internet_status
+      domain: binary_sensor

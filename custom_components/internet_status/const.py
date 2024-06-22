@@ -18,6 +18,8 @@ CONF_CONFIGURED_IP = "configured_ip"
 CONF_RTT_SENSOR = "rtt_sensor"
 CONF_UPDATE_INTERVAL = "update_interval"
 
+SERVICE_SET_CONFIGURED_IP = "set_configured_ip"
+
 
 class LinkType(StrEnum):
     """Defined link types."""
@@ -51,6 +53,8 @@ DEFAULTS = {
 }
 DEF_LINK_NAME_PREFIX = "Link "
 DEF_LINK_RTT_SUFFIX = " RTT"
+
+MIN_UPDATE_INTERVAL = 5
 
 DEF_INTERNET_STATUS_ICON = {
     "up": "mdi:lan-connect",

@@ -1,10 +1,11 @@
 """Internet Status data update coordinator."""
 
 from abc import ABC
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 from typing import Any
 import asyncio
 import logging
+import math
 
 # import time
 import aiofiles
@@ -21,10 +22,12 @@ import dns.exception
 from homeassistant.const import CONF_NAME
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import slugify
 
 from .const import (
+    DOMAIN,
     CONF_LINKS,
     CONF_SCAN_INTERVAL,
     CONF_RETRIES,
@@ -38,6 +41,7 @@ from .const import (
     CONF_UPDATE_INTERVAL,
     DEFAULTS,
     DEF_LINK_NAME_PREFIX,
+    MIN_UPDATE_INTERVAL,
     ProbeType,
     LinkType,
 )
@@ -63,27 +67,27 @@ class InternetStatusCoordinator(DataUpdateCoordinator):
         self, hass: HomeAssistant, entry: ConfigEntry, config: list[dict[Any, Any]]
     ) -> None:
         """Initialise Internet Status coordinator."""
-        super().__init__(
-            hass,
-            _LOGGER.getChild("coordinator"),
-            # Name of the data. For logging purposes.
-            name="InternetStatus",
-            ## short initial refresh after all platforms have completed setup
-            update_interval=timedelta(seconds=3),
-        )
         self.entry = entry
-        self.name = entry.title
         self.internet_status = None
-        self._update_interval = timedelta(
-            seconds=config.get(CONF_SCAN_INTERVAL, DEFAULTS[CONF_SCAN_INTERVAL])
-        )
         self.links_all: dict[str, InternetLink] = {}
         self._slugs_all: list[str] = []
         self._primary_link: InternetLink = None
         self._secondary_links: list[InternetLink] = []
         self._monitor_links: list[InternetLink] = []
         self._configured_ip_updated = False
+        self._full_update = True
         self._init_links(config)
+        link_scan_intervals = [link.scan_interval for link in self.links_all.values()]
+        update_interval = max(math.gcd(*link_scan_intervals), MIN_UPDATE_INTERVAL)
+        _LOGGER.debug("setting update interval to %d", update_interval)
+        super().__init__(
+            hass,
+            _LOGGER.getChild("coordinator"),
+            # Name of the data. For logging purposes.
+            name="InternetStatus",
+            update_interval=timedelta(seconds=update_interval),
+            update_method=self.async_update_link_status,
+        )
 
     def _init_links(self, config: list[dict[Any, Any]]) -> None:
         """Initialise links from config."""
@@ -117,9 +121,19 @@ class InternetStatusCoordinator(DataUpdateCoordinator):
             link = None
             probe_type = None
             if probe_type_raw := link_config.get(CONF_PROBE_TYPE):
-                probe_type = ProbeType(probe_type_raw)
+                try:
+                    probe_type = ProbeType(probe_type_raw)
+                except ValueError:
+                    pass
             match probe_type:
                 case ProbeType.FILE:
+                    if (file_path := link_config.get(CONF_PROBE_TARGET)) is None:
+                        _LOGGER.warning(
+                            "no file path specified for link %s (probe_type=%s)",
+                            name,
+                            probe_type,
+                        )
+                        continue
                     _LOGGER.debug(
                         "creating link %s: link_type=%s, probe_type=%s, file_path=%s",
                         name,
@@ -127,7 +141,6 @@ class InternetStatusCoordinator(DataUpdateCoordinator):
                         probe_type,
                         file_path,
                     )
-                    file_path = link_config.get(CONF_PROBE_TARGET)
                     link: ProbeFileLink = ProbeFileLink(
                         link_type,
                         name,
@@ -205,43 +218,67 @@ class InternetStatusCoordinator(DataUpdateCoordinator):
         if self._primary_link is None:
             raise RuntimeError("no primary link defined")
 
-    async def _async_update_data(self) -> None:
+    async def async_refresh_full(self) -> None:
+        """Perform a full refresh."""
+        _LOGGER.debug("forcing full update")
+        self._full_update = True
+        await self.async_refresh()
+
+    async def async_update_link_status(self) -> None:
         """Update link statuses and overall Internet status."""
         link: InternetLink
         async with asyncio.TaskGroup() as tgr:
             for link in self.links_all.values():
-                tgr.create_task(link.async_update())
+                tgr.create_task(link.async_update(self._full_update))
+        self._full_update = False
 
-        primary_up = (
-            self._primary_link.link_up
-            and self._primary_link.reverse_hostname is not False
-        )
-        primary_ip = self._primary_link.current_ip
-        secondaries_up = map(lambda x: x.link_up, self._secondary_links)
-        secondaries_ip = map(lambda x: x.current_ip, self._secondary_links)
-
+        primary_link = self._primary_link
+        primary_up = primary_link.link_up
+        secondaries_up = [link.link_up for link in self._secondary_links]
         internet_status = "up"
+
+        ## Update link failover status
+        main_links = [self._primary_link] + self._secondary_links
+        link_failover_any = False
+        while main_links:
+            link = main_links.pop(0)
+            main_link_ips = {
+                (l.configured_ip or l.current_ip): l.name
+                for l in main_links
+                if l.configured_ip or l.current_ip
+            }
+            link_failover = False
+            if link.current_ip:
+                link_failover = link.current_ip in main_link_ips.keys()
+                if link_failover:
+                    link_failover_any = True
+            if link.link_failover != link_failover:
+                if link_failover:
+                    _LOGGER.info(
+                        "%s: failed over to link %s",
+                        link.name,
+                        main_link_ips[link.current_ip],
+                    )
+                elif link.link_failover is not None:
+                    _LOGGER.info("%s: link failover cleared", link.name)
+                link.link_failover = link_failover
+
         if not primary_up:
             ## Primary link failed but has not failed over to secondary yet
             internet_status = "degraded (primary down)"
             if primary_up is False and not any(secondaries_up):
                 ## Primary and all secondary links have failed
                 internet_status = "down"
-            elif primary_ip:
-                internet_status = "failover to other (primary down)"
-                if primary_ip in secondaries_ip:
-                    ## Primary failed over to secondary
-                    internet_status = "failover to secondary (primary down)"
+            elif primary_link.link_failover:
+                ## Primary failed over to secondary
+                internet_status = "failover to secondary (primary down)"
+            else:
+                internet_status = "failover to other link (primary down)"
         elif not all(secondaries_up):  # primary_up is True
             ## A secondary link has failed but primary link is up
             internet_status = "degraded (secondary down)"
-        elif primary_ip in [secondaries_ip]:
-            ## The primary link has the same IP as a secondary link, but the
-            ## primary link is up. This can only occur if configured_ips have
-            ## not been set at the start.
-            internet_status = "failover"
         else:  ## Primary and all secondaries are up
-            if not self._configured_ip_updated:
+            if not link_failover_any and not self._configured_ip_updated:
                 self._configured_ip_updated = True
                 self.set_configured_ip()
 
@@ -249,104 +286,115 @@ class InternetStatusCoordinator(DataUpdateCoordinator):
             _LOGGER.info("internet_status: %s", internet_status)
         self.internet_status = internet_status
 
-        ## Calculate next update time
-        current_time = datetime.utcnow()
-        next_update = current_time + self._update_interval
-        for link in self.links_all.values():
-            if link.next_update < next_update:
-                next_update = link.next_update
-        ## Delay update by 1 seconds to compensate for _schedule_refresh
-        ## microsecond randomisation
-        self.update_interval = next_update - current_time + timedelta(seconds=1)
-        _LOGGER.debug("next update due in %fs", self.update_interval.total_seconds())
-
     def set_configured_ip(self) -> None:
         """Set configured IP for all links."""
-        self._primary_link.set_configured_ip()
-        for link in self._secondary_links:
+        for link in [self._primary_link] + self._secondary_links:
             link.set_configured_ip()
 
     def clear_configured_ip(self) -> None:
         """Clear configured IP for all links."""
-        self._primary_link.clear_configured_ip()
-        for link in self._secondary_links:
+        for link in [self._primary_link] + self._secondary_links:
             link.clear_configured_ip()
 
 
 class InternetLink(ABC):
-    """Internet link object."""
+    """
+    Internet link object.
+
+    link_up: False = IP address cannot be determined for the link
+             True = link is up and has the expected IP address
+             None = link is up but does not have the expected IP address
+    link_failover: False = link is not failed over
+                   True = current IP address for link is the configured IP of another link
+    """
 
     def __init__(
         self,
-        link_type: str,
+        link_type: LinkType,
         name: str,
         probe_target: str,
         scan_interval: float = DEFAULTS[CONF_SCAN_INTERVAL],
-        link_up: bool = None,
+        link_up: bool | None = None,
     ) -> None:
         self.link_type = link_type
+        self.link_failover: bool | None = None
         self.name = name
         self.probe_target = probe_target
         self.scan_interval = scan_interval
         self.link_up = link_up
-        self.next_update = datetime.utcnow()
+        self.next_update = datetime.now(UTC)
         self.reverse_hostname = None
         self.reverse_ok = None
         self.configured_ip = None
-        self.configured_ip_set = False
         self.current_ip = None
 
     def set_configured_ip(self) -> None:
         """Set configured IP for the link."""
-        if not self.configured_ip_set:
-            if self.current_ip is not None:
-                self.configured_ip = self.current_ip
+        if self.link_type not in [LinkType.PRIMARY, LinkType.SECONDARY]:
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="set_configured_ip_invalid_link_type",
+                translation_placeholders={"link_type": str(self.link_type)},
+            )
+        if self.current_ip is not None:
+            _LOGGER.debug(
+                "%s: updating configured IP from: %s to: %s",
+                self.name,
+                self.configured_ip,
+                self.current_ip,
+            )
+            self.configured_ip = self.current_ip
             if self.link_up is None:
                 self.link_up = True
+        else:
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="set_configured_ip_unknown_current_ip",
+            )
 
     def clear_configured_ip(self) -> None:
         """Clear configured IP for the link."""
-        if not self.configured_ip_set:
-            self.configured_ip = None
-            if self.link_up is None:
-                self.link_up = True
+        self.configured_ip = None
+        self.link_up = False
 
-    async def async_probe(self) -> bool:
+    async def async_probe(self) -> bool | None:
         """Probe Internet link. (stub)"""
         raise RuntimeError("probe not implemented")
 
-    async def async_update(self) -> bool:
+    async def async_update(self, full_update: bool = False) -> bool:
         """Update status of link."""
-        current_time = datetime.utcnow()
-        if self.next_update <= current_time:
-            _LOGGER.debug("updating link %s", self.name)
-            link_up = await self.async_probe()
+        current_time = datetime.now(UTC)
+        if full_update or self.next_update <= current_time:
+            _LOGGER.debug("%s: probing link", self.name)
             self.next_update = current_time + timedelta(seconds=self.scan_interval)
+            link_up = await self.async_probe()
             if link_up != self.link_up:
-                _LOGGER.info("link_status %s: %s", self.name, link_up)
+                _LOGGER.info("%s: link_status: %s", self.name, link_up)
             self.link_up = link_up
             return True
+        next_update_in = self.next_update - current_time
+        _LOGGER.debug("%s: skipping, next update in: %s", self.name, next_update_in)
         return False
 
 
 class ProbeFileLink(InternetLink):
     """Internet link with file probe."""
 
-    async def async_probe(self) -> bool:
+    async def async_probe(self) -> bool | None:
         """Probe file for status."""
 
         async with aiofiles.open(
             self.probe_target, "r", encoding="utf8", errors="surrogateescape"
         ) as fileh:
-            current_ip = await fileh.read().rstrip()
+            current_ip = (await fileh.read()).rstrip()
 
         if not dns.inet.is_address(current_ip):
             self.current_ip = None
             return False
 
         self.current_ip = current_ip
-        if self.configured_ip is None:
-            self.configured_ip = current_ip
+        # if self.configured_ip is None:
+        #     self.configured_ip = current_ip
         if self.configured_ip is None or self.current_ip == self.configured_ip:
             return True
         return None
@@ -359,7 +407,7 @@ class ProbeDNSLink(InternetLink, ABC):
 
     def __init__(
         self,
-        link_type: str,
+        link_type: LinkType,
         name: str,
         probe_host: str,
         scan_interval: float = DEFAULTS[CONF_SCAN_INTERVAL],
@@ -377,6 +425,7 @@ class ProbeDNSLink(InternetLink, ABC):
             link_up=link_up,
         )
         self.reverse_hostname = reverse_hostname
+        self.reverse_hostname_error = False
         self.configured_ip = configured_ip
         if configured_ip:
             self.configured_ip_set = True  ## Prevent configure_ip from being reset
@@ -398,24 +447,25 @@ class ProbeDNSLink(InternetLink, ABC):
     ) -> None:
         """Enable RTT reporting."""
         self.rtt_update_interval = update_interval
-        self.rtt_next_update = datetime.utcnow()
+        self.rtt_next_update = datetime.now(UTC)
 
     async def async_send_dns_probe(self):
         """Send DNS probe. (stub)"""
         raise RuntimeError("send_dns_probe not implemented")
 
-    async def async_probe(self) -> bool:
+    async def async_probe(self) -> bool | None:
         """Send DNS probes and update rtt."""
         probe_host = self.probe_target
         current_ip = None
         self.rtt_array = []
         for count in range(self._retries, 0, -1):
-            start_time = datetime.utcnow()
+            start_time = datetime.now(UTC)
             try:
                 probe_ip = await self.async_send_dns_probe()
             except dns.exception.DNSException as exc:
                 _LOGGER.debug(
-                    "failed: probe_type=%s, probe_host=%s: %s",
+                    "%s: probe failed: probe_type=%s, probe_host=%s: %s",
+                    self.name,
                     self.probe_type,
                     probe_host,
                     exc,
@@ -425,11 +475,13 @@ class ProbeDNSLink(InternetLink, ABC):
             if probe_ip is not None:
                 current_ip = probe_ip
                 rtt = round(
-                    (datetime.utcnow() - start_time) / timedelta(milliseconds=1), 3
+                    (datetime.now(UTC) - start_time) / timedelta(milliseconds=1), 3
                 )
                 self.rtt_array.append(rtt)
                 _LOGGER.debug(
-                    "success: probe_type=%s, probe_host=%s, current_ip=%s, rtt=%fs",
+                    "%s: probe success: probe_type=%s, probe_host=%s, "
+                    "current_ip=%s, rtt=%fs",
+                    self.name,
                     self.probe_type,
                     probe_host,
                     current_ip,
@@ -439,16 +491,18 @@ class ProbeDNSLink(InternetLink, ABC):
                 await asyncio.sleep(self._timeout - rtt / 1000)
         if self.rtt_array:
             self.rtt = round(sum(self.rtt_array) / len(self.rtt_array), 3)
-            _LOGGER.debug("average rtt: %fs", self.rtt)
+            _LOGGER.debug("%s: average rtt: %fs", self.name, self.rtt)
         else:
             self.rtt = None
 
         self.current_ip = current_ip
         if current_ip is None:
             return False
-        if self.configured_ip is None or current_ip == self.configured_ip:
-            return True
-        return None
+        if self.configured_ip and current_ip != self.configured_ip:
+            return None
+        if self.reverse_hostname:
+            return True if await self.check_dns_reverse_lookup() else None
+        return True
 
     async def check_dns_reverse_lookup(self):
         """Reverse DNS lookup current IP and match with reverse hostname."""
@@ -457,23 +511,37 @@ class ProbeDNSLink(InternetLink, ABC):
         # timeout = self._timeout
         try:
             answer = await dns.asyncresolver.resolve_address(current_ip)
+            self.reverse_hostname_error = False
             ptr_data = str(answer[0])
             if reverse_hostname in ptr_data:
                 _LOGGER.debug(
-                    "success: reverse lookup: %s in %s", reverse_hostname, ptr_data
+                    "%s: reverse lookup success: %s in %s",
+                    self.name,
+                    reverse_hostname,
+                    ptr_data,
                 )
                 return True
             _LOGGER.debug(
-                "failed: reverse lookup: %s not in %s", reverse_hostname, ptr_data
+                "%s: reverse lookup failed: %s not in %s",
+                self.name,
+                reverse_hostname,
+                ptr_data,
             )
             return False
         except dns.exception.DNSException as exc:
-            _LOGGER.warning("reverse lookup for %s failed: %s", current_ip, str(exc))
+            if not self.reverse_hostname_error:
+                _LOGGER.warning(
+                    "%s: reverse lookup for %s failed: %s",
+                    self.name,
+                    current_ip,
+                    str(exc),
+                )
+                self.reverse_hostname_error = True
             return False
 
-    async def async_update(self) -> bool:
+    async def async_update(self, full_update: bool = False) -> bool:
         """Update status of DNS link."""
-        if not (link_updated := await super().async_update()):
+        if not (link_updated := await super().async_update(full_update)):
             return link_updated
         if self.link_up and self.reverse_hostname is not None:
             self.reverse_ok = await self.check_dns_reverse_lookup()

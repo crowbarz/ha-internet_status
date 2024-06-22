@@ -1,6 +1,6 @@
 """Internet Status sensor platform."""
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 import logging
 
 from homeassistant.components.sensor import (
@@ -41,7 +41,7 @@ async def async_setup_entry(
         if isinstance(link, ProbeDNSLink) and link.rtt_update_interval is not None:
             entities.append(LinkRttSensor(coordinator, link))
 
-    async_add_entities(entities)
+    async_add_entities(entities, update_before_add=True)
 
 
 class InternetStatusSensor(CoordinatorEntity, SensorEntity):
@@ -112,7 +112,7 @@ class LinkRttSensor(CoordinatorEntity, SensorEntity):
     @callback
     def _handle_coordinator_update(self) -> None:
         """Handle updated data from the coordinator."""
-        current_time = datetime.utcnow()
+        current_time = datetime.now(UTC)
         if self.link.rtt_next_update <= current_time:
             _LOGGER.debug("updating LinkRttSensor for link %s", self.link.name)
             self._attr_native_value = self.link.rtt

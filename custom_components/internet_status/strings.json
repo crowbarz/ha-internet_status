@@ -32,5 +32,13 @@
         }
       }
     }
+  },
+  "exceptions": {
+    "set_configured_ip_invalid_link_type": {
+      "message": "cannot set configured IP for link type {link_type}"
+    },
+    "set_configured_ip_unknown_current_ip": {
+      "message": "cannot set configured IP: unknown current IP"
+    }
   }
 }
