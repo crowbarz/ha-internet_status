@@ -78,7 +78,15 @@ class InternetStatusCoordinator(DataUpdateCoordinator):
         self._full_update = True
         self._init_links(config)
         link_scan_intervals = [link.scan_interval for link in self.links_all.values()]
-        update_interval = max(math.gcd(*link_scan_intervals), MIN_UPDATE_INTERVAL)
+        link_rtt_update_intervals = [
+            link.rtt_update_interval
+            for link in self.links_all.values()
+            if getattr(link, "rtt_update_interval", None)
+        ]
+        update_interval = max(
+            math.gcd(*link_scan_intervals, *link_rtt_update_intervals),
+            MIN_UPDATE_INTERVAL,
+        )
         _LOGGER.debug("setting update interval to %d", update_interval)
         super().__init__(
             hass,
@@ -232,11 +240,6 @@ class InternetStatusCoordinator(DataUpdateCoordinator):
                 tgr.create_task(link.async_update(self._full_update))
         self._full_update = False
 
-        primary_link = self._primary_link
-        primary_up = primary_link.link_up
-        secondaries_up = [link.link_up for link in self._secondary_links]
-        internet_status = "up"
-
         ## Update link failover status
         main_links = [self._primary_link] + self._secondary_links
         link_failover_any = False
@@ -252,6 +255,7 @@ class InternetStatusCoordinator(DataUpdateCoordinator):
                 link_failover = link.current_ip in main_link_ips.keys()
                 if link_failover:
                     link_failover_any = True
+                    link.link_up = None  ## for links with no configured IP set
             if link.link_failover != link_failover:
                 if link_failover:
                     _LOGGER.info(
@@ -263,7 +267,13 @@ class InternetStatusCoordinator(DataUpdateCoordinator):
                     _LOGGER.info("%s: link failover cleared", link.name)
                 link.link_failover = link_failover
 
-        if not primary_up:
+        ## Determine internet status
+        primary_link = self._primary_link
+        primary_up = primary_link.link_up
+        secondaries_up = [link.link_up for link in self._secondary_links]
+        internet_status = "up"
+
+        if not primary_up or primary_link.link_failover:
             ## Primary link failed but has not failed over to secondary yet
             internet_status = "degraded (primary down)"
             if primary_up is False and not any(secondaries_up):
@@ -279,7 +289,6 @@ class InternetStatusCoordinator(DataUpdateCoordinator):
             internet_status = "degraded (secondary down)"
         else:  ## Primary and all secondaries are up
             if not link_failover_any and not self._configured_ip_updated:
-                self._configured_ip_updated = True
                 self.set_configured_ip()
 
         if self.internet_status != internet_status:
@@ -287,14 +296,17 @@ class InternetStatusCoordinator(DataUpdateCoordinator):
         self.internet_status = internet_status
 
     def set_configured_ip(self) -> None:
-        """Set configured IP for all links."""
-        for link in [self._primary_link] + self._secondary_links:
-            link.set_configured_ip()
+        """Set configured IP for links that do not have a configured IP."""
+        for link in self.links_all.values():
+            if link.configured_ip is None and link.current_ip:
+                link.set_configured_ip()
+        self._configured_ip_updated = True
 
-    def clear_configured_ip(self) -> None:
-        """Clear configured IP for all links."""
-        for link in [self._primary_link] + self._secondary_links:
-            link.clear_configured_ip()
+    def reset_configured_ip(self) -> None:
+        """Reset configured IP for all links."""
+        self._configured_ip_updated = False
+        for link in self.links_all.values():
+            link.reset_configured_ip()
 
 
 class InternetLink(ABC):
@@ -314,28 +326,23 @@ class InternetLink(ABC):
         name: str,
         probe_target: str,
         scan_interval: float = DEFAULTS[CONF_SCAN_INTERVAL],
-        link_up: bool | None = None,
+        configured_ip: str = None,
     ) -> None:
         self.link_type = link_type
         self.link_failover: bool | None = None
         self.name = name
         self.probe_target = probe_target
         self.scan_interval = scan_interval
-        self.link_up = link_up
-        self.next_update = datetime.now(UTC)
+        self.configured_ip = configured_ip
+        self._config_configured_ip = configured_ip
+        self.link_up = None
         self.reverse_hostname = None
         self.reverse_ok = None
-        self.configured_ip = None
         self.current_ip = None
+        self.next_update = datetime.now(UTC)
 
     def set_configured_ip(self) -> None:
         """Set configured IP for the link."""
-        if self.link_type not in [LinkType.PRIMARY, LinkType.SECONDARY]:
-            raise ServiceValidationError(
-                translation_domain=DOMAIN,
-                translation_key="set_configured_ip_invalid_link_type",
-                translation_placeholders={"link_type": str(self.link_type)},
-            )
         if self.current_ip is not None:
             _LOGGER.debug(
                 "%s: updating configured IP from: %s to: %s",
@@ -352,10 +359,10 @@ class InternetLink(ABC):
                 translation_key="set_configured_ip_unknown_current_ip",
             )
 
-    def clear_configured_ip(self) -> None:
-        """Clear configured IP for the link."""
-        self.configured_ip = None
-        self.link_up = False
+    def reset_configured_ip(self) -> None:
+        """Reset configured IP for the link."""
+        self.configured_ip = self._config_configured_ip
+        self.link_up = bool(self.current_ip)
 
     async def async_probe(self) -> bool | None:
         """Probe Internet link. (stub)"""
@@ -367,7 +374,11 @@ class InternetLink(ABC):
         if full_update or self.next_update <= current_time:
             _LOGGER.debug("%s: probing link", self.name)
             self.next_update = current_time + timedelta(seconds=self.scan_interval)
+            current_ip = self.current_ip
             link_up = await self.async_probe()
+            if self.link_failover and current_ip == self.current_ip:
+                ## Link previously marked as failed over and IP has not changed
+                link_up = None
             if link_up != self.link_up:
                 _LOGGER.info("%s: link_status: %s", self.name, link_up)
             self.link_up = link_up
@@ -393,8 +404,6 @@ class ProbeFileLink(InternetLink):
             return False
 
         self.current_ip = current_ip
-        # if self.configured_ip is None:
-        #     self.configured_ip = current_ip
         if self.configured_ip is None or self.current_ip == self.configured_ip:
             return True
         return None
@@ -412,7 +421,6 @@ class ProbeDNSLink(InternetLink, ABC):
         probe_host: str,
         scan_interval: float = DEFAULTS[CONF_SCAN_INTERVAL],
         reverse_hostname: str = None,
-        link_up: bool = None,
         configured_ip: str = None,
         retries: int = DEFAULTS[CONF_RETRIES],
         timeout: float = DEFAULTS[CONF_TIMEOUT],
@@ -422,13 +430,10 @@ class ProbeDNSLink(InternetLink, ABC):
             name=name,
             probe_target=probe_host,
             scan_interval=scan_interval,
-            link_up=link_up,
+            configured_ip=configured_ip,
         )
         self.reverse_hostname = reverse_hostname
         self.reverse_hostname_error = False
-        self.configured_ip = configured_ip
-        if configured_ip:
-            self.configured_ip_set = True  ## Prevent configure_ip from being reset
         self._retries = retries
         self._timeout = timeout
         self.rtt = None

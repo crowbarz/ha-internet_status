@@ -2,14 +2,19 @@
 
 from __future__ import annotations
 
+import logging
+import voluptuous as vol
+
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, ServiceCall
 
 from .const import DOMAIN
 from .coordinator import InternetStatusCoordinator
 
 PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.BINARY_SENSOR]
+
+_LOGGER = logging.getLogger(__name__)
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -25,6 +30,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     async def async_update_options(hass: HomeAssistant, entry: ConfigEntry) -> None:
         """Handle options update."""
         await hass.config_entries.async_reload(entry.entry_id)
+
+    async def async_reset_configured_ips_all(_service_call: ServiceCall) -> None:
+        """Reset the configured IP for all links."""
+        _LOGGER.debug("reset_configured_ips_all()")
+        coordinator.reset_configured_ip()
+        await coordinator.async_refresh_full()
+
+    hass.services.async_register(
+        DOMAIN, "reset_configured_ips_all", async_reset_configured_ips_all
+    )
 
     entry.async_on_unload(entry.add_update_listener(async_update_options))
 
