@@ -5,7 +5,7 @@
   "config_flow": true,
   "documentation": "https://github.com/crowbarz/ha-internet_status",
   "integration_type": "hub",
-  "requirements": [ "dnspython~=2.1", "aiofiles~=23.1" ],
+  "requirements": [ "dnspython~=2.1", "aiofiles~=23.1", "icmplib~=3.0" ],
   "dependencies": [],
   "codeowners": [],
   "iot_class": "local_polling",

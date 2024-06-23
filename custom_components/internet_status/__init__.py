@@ -21,7 +21,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up internet_status from a config entry."""
 
     hass.data.setdefault(DOMAIN, {})
-    coordinator = InternetStatusCoordinator(hass, entry, entry.options)
+    coordinator = InternetStatusCoordinator(hass, entry)
     await coordinator.async_config_entry_first_refresh()
     hass.data[DOMAIN][entry.entry_id] = coordinator
 

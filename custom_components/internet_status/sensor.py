@@ -22,7 +22,7 @@ from .const import (
     DEF_LINK_RTT_ICON,
     ATTR_RTT,
 )
-from .coordinator import InternetStatusCoordinator, ProbeDNSLink
+from .coordinator import InternetStatusCoordinator, InternetLink
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -38,7 +38,7 @@ async def async_setup_entry(
 
     entities.append(InternetStatusSensor(coordinator))
     for link in coordinator.links_all.values():
-        if isinstance(link, ProbeDNSLink) and link.rtt_update_interval is not None:
+        if getattr(link, "rtt_update_interval", None) is not None:
             entities.append(LinkRttSensor(coordinator, link))
 
     async_add_entities(entities, update_before_add=True)
@@ -91,7 +91,7 @@ class LinkRttSensor(CoordinatorEntity, SensorEntity):
     _attr_native_unit_of_measurement = "ms"
 
     def __init__(
-        self, coordinator: InternetStatusCoordinator, link: ProbeDNSLink
+        self, coordinator: InternetStatusCoordinator, link: InternetLink
     ) -> None:
         """Initialise the link status binary_sensor."""
         self.coordinator = coordinator
