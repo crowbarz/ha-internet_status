@@ -1,7 +1,6 @@
 """Internet Status data update coordinator."""
 
 from abc import ABC
-from copy import deepcopy
 from datetime import datetime, timedelta, UTC
 from typing import Any
 import asyncio
@@ -52,54 +51,17 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 
-## https://github.com/rthalley/dnspython/issues/1083
-def load_all_types():
-    """Workaround for imports triggering blocking call in the event loop."""
-    for rdtype in dns.rdatatype.RdataType:
-        if not dns.rdatatype.is_metatype(rdtype) or rdtype == dns.rdatatype.OPT:
-            dns.rdata.get_rdata_class(dns.rdataclass.IN, rdtype)
+class InternetLinks:
+    """Configured Internet links."""
 
-
-load_all_types()
-
-
-class InternetStatusCoordinator(DataUpdateCoordinator):
-    """Internet Status coordinator."""
-
-    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
-        """Initialise Internet Status coordinator."""
-        self.entry = entry
-        self.internet_status = None
-        self.links_all: dict[str, InternetLink] = {}
-        self._slugs_all: list[str] = []
-        self._primary_link: InternetLink = None
-        self._secondary_links: list[InternetLink] = []
-        self._monitor_links: list[InternetLink] = []
-        self._configured_ip_updated = False
-        self._full_update = True
-        self._create_links(deepcopy(dict(entry.options)))
-        link_scan_intervals = [link.scan_interval for link in self.links_all.values()]
-        link_rtt_update_intervals = [
-            link.rtt_update_interval
-            for link in self.links_all.values()
-            if getattr(link, "rtt_update_interval", None)
-        ]
-        update_interval = max(
-            math.gcd(*link_scan_intervals, *link_rtt_update_intervals),
-            MIN_UPDATE_INTERVAL,
-        )
-        _LOGGER.debug("setting update interval to %d", update_interval)
-        super().__init__(
-            hass,
-            _LOGGER.getChild("coordinator"),
-            # Name of the data. For logging purposes.
-            name="InternetStatus",
-            update_interval=timedelta(seconds=update_interval),
-            update_method=self.async_update_link_status,
-        )
-
-    def _create_links(self, config: dict[str, Any]) -> None:
+    def __init__(self, config: dict[str, Any]):
         """Create links from config."""
+        self.links_all: dict[str, InternetLink] = {}
+        self.slugs_all: list[str] = []
+        self.primary_link: InternetLink = None
+        self.secondary_links: list[InternetLink] = []
+        self.monitor_links: list[InternetLink] = []
+
         link_id = 1
 
         def get_unique_name(name: str) -> str:
@@ -107,7 +69,7 @@ class InternetStatusCoordinator(DataUpdateCoordinator):
             nonlocal link_id
             if name is None:
                 name = f"{DEF_LINK_NAME_PREFIX} {link_id}"
-            while name in self.links_all or slugify(name) in self._slugs_all:
+            while name in self.links_all or slugify(name) in self.slugs_all:
                 link_id += 1
                 name = f"{DEF_LINK_NAME_PREFIX} {link_id}"
             return name
@@ -150,28 +112,63 @@ class InternetStatusCoordinator(DataUpdateCoordinator):
                     continue
 
             if link_type == LinkType.PRIMARY:
-                if self._primary_link is not None:
+                if self.primary_link is not None:
                     _LOGGER.warning(
                         "demoted link %s to secondary as primary link is already defined",
                         name,
                     )
                     link.link_type = LinkType.SECONDARY
-                    self._secondary_links.append(link)
+                    self.secondary_links.append(link)
                 else:
-                    self._primary_link = link
+                    self.primary_link = link
             elif link_type == LinkType.SECONDARY:
-                self._secondary_links.append(link)
+                self.secondary_links.append(link)
             elif link_type == LinkType.MONITOR_ONLY:
-                self._monitor_links.append(link)
+                self.monitor_links.append(link)
             else:
                 _LOGGER.warning("unknown link_type %s for link %s", link_type, name)
                 continue
             self.links_all[name] = link
-            self._slugs_all.append(slugify(name))
+            self.slugs_all.append(slugify(name))
             link_id += 1
 
-        if self._primary_link is None:
+        if self.primary_link is None:
             raise RuntimeError("no primary link defined")
+
+
+class InternetStatusCoordinator(DataUpdateCoordinator):
+    """Internet Status coordinator."""
+
+    def __init__(
+        self, hass: HomeAssistant, entry: ConfigEntry, links: InternetLinks
+    ) -> None:
+        """Initialise Internet Status coordinator."""
+        self.entry = entry
+        self.links = links
+        self.internet_status = None
+        self._configured_ip_updated = False
+        self._full_update = True
+        link_scan_intervals = [
+            link.scan_interval for link in self.links.links_all.values()
+        ]
+        link_rtt_update_intervals = [
+            link.rtt_update_interval
+            for link in self.links.links_all.values()
+            if getattr(link, "rtt_update_interval", None)
+        ]
+        update_interval = max(
+            math.gcd(*link_scan_intervals, *link_rtt_update_intervals),
+            MIN_UPDATE_INTERVAL,
+        )
+        _LOGGER.debug("setting update interval to %d", update_interval)
+        super().__init__(
+            hass,
+            _LOGGER.getChild("coordinator"),
+            # Name of the data. For logging purposes.
+            name="InternetStatus",
+            update_interval=timedelta(seconds=update_interval),
+            update_method=self.async_update_link_status,
+        )
 
     async def async_refresh_full(self) -> None:
         """Perform a full refresh."""
@@ -183,12 +180,12 @@ class InternetStatusCoordinator(DataUpdateCoordinator):
         """Update link statuses and overall Internet status."""
         link: InternetLink
         async with asyncio.TaskGroup() as tgr:
-            for link in self.links_all.values():
+            for link in self.links.links_all.values():
                 tgr.create_task(link.async_update(self._full_update))
         self._full_update = False
 
         ## Update link failover status
-        main_links = [self._primary_link] + self._secondary_links
+        main_links = [self.links.primary_link] + self.links.secondary_links
         link_failover_any = False
         while main_links:
             link = main_links.pop(0)
@@ -215,9 +212,9 @@ class InternetStatusCoordinator(DataUpdateCoordinator):
                 link.link_failover = link_failover
 
         ## Determine internet status
-        primary_link = self._primary_link
+        primary_link = self.links.primary_link
         primary_up = primary_link.link_up
-        secondaries_up = [link.link_up for link in self._secondary_links]
+        secondaries_up = [link.link_up for link in self.links.secondary_links]
         internet_status = "up"
 
         if not primary_up or primary_link.link_failover:
@@ -244,7 +241,7 @@ class InternetStatusCoordinator(DataUpdateCoordinator):
 
     def set_configured_ip(self) -> None:
         """Set configured IP for links that do not have a configured IP."""
-        for link in self.links_all.values():
+        for link in self.links.links_all.values():
             if link.configured_ip is None and link.current_ip:
                 link.set_configured_ip()
         self._configured_ip_updated = True
@@ -252,7 +249,7 @@ class InternetStatusCoordinator(DataUpdateCoordinator):
     def reset_configured_ip(self) -> None:
         """Reset configured IP for all links."""
         self._configured_ip_updated = False
-        for link in self.links_all.values():
+        for link in self.links.links_all.values():
             link.reset_configured_ip()
 
 

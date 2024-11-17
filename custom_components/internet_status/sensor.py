@@ -37,7 +37,7 @@ async def async_setup_entry(
     entities = []
 
     entities.append(InternetStatusSensor(coordinator))
-    for link in coordinator.links_all.values():
+    for link in coordinator.links.links_all.values():
         if getattr(link, "rtt_update_interval", None) is not None:
             entities.append(LinkRttSensor(coordinator, link))
 

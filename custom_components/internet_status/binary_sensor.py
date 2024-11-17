@@ -41,7 +41,7 @@ async def async_setup_entry(
     coordinator: InternetStatusCoordinator = hass.data[DOMAIN][entry.entry_id]
     entities = []
 
-    for link in coordinator.links_all.values():
+    for link in coordinator.links.links_all.values():
         entities.append(LinkStatusBinarySensor(coordinator, link))
     async_add_entities(entities, update_before_add=True)
 

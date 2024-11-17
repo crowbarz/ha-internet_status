@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import logging
-import voluptuous as vol
+
+import dns.rdata
+import dns.rdataclass
+import dns.rdatatype
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall
 
 from .const import DOMAIN
-from .coordinator import InternetStatusCoordinator
+from .coordinator import InternetStatusCoordinator, InternetLinks
 
 PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.BINARY_SENSOR]
 
@@ -20,8 +23,19 @@ _LOGGER = logging.getLogger(__name__)
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up internet_status from a config entry."""
 
+    def setup_links():
+        """Set up Internet links synchronously via executor job."""
+        ## https://github.com/rthalley/dnspython/issues/1083
+        ## https://github.com/rthalley/dnspython/pull/1095
+        for rdtype in dns.rdatatype.RdataType:
+            if not dns.rdatatype.is_metatype(rdtype) or rdtype == dns.rdatatype.OPT:
+                dns.rdata.get_rdata_class(dns.rdataclass.IN, rdtype)
+
+        return InternetLinks(entry.options)
+
     hass.data.setdefault(DOMAIN, {})
-    coordinator = InternetStatusCoordinator(hass, entry)
+    links = await hass.async_add_executor_job(setup_links)
+    coordinator = InternetStatusCoordinator(hass, entry, links)
     await coordinator.async_config_entry_first_refresh()
     hass.data[DOMAIN][entry.entry_id] = coordinator
 
