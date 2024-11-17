@@ -5,7 +5,7 @@ from enum import StrEnum
 from homeassistant.const import CONF_NAME, CONF_SCAN_INTERVAL
 
 DOMAIN = "internet_status"
-VERSION = "0.9.0"
+VERSION = "0.9.1"
 
 CONF_TIMEOUT = "timeout"
 CONF_RETRIES = "retries"
